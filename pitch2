@@ -1,0 +1,46 @@
+🎯 PITCH : LE SMART PRODUCER CONTRACT
+"L'infrastructure blockchain qui protège les producteurs d'art francais et européen"
+
+🔥 LE PROBLÈME
+Les producteurs d'art vivent une double anxiété :
+Primaire : Ils ont besoin de centraliser les fonds pour gérer les coûts de production, les taxes et les contrats papier
+Secondaire : Ils veulent automatiser les royalties entre 5+ ayants droit sans friction
+Les solutions actuelles (0xSplits, Slice) forcent un split immédiat → Incompatible avec le droit d'auteur français/européen et la gestion fiscale complexe.
+
+💡 LA SOLUTION : "THE HERITAGE SPLITTER"
+Un Smart Contract hybride qui s'adapte au cycle de vie de l'œuvre :
+📍 Phase 1 : Vente Primaire
+→ 100% des fonds vont au wallet producteur
+→ Redistribution manuelle selon les contrats papier & obligations fiscales
+📍 Phase 2 : Vente Secondaire
+→ Automation totale : Split automatique des royalties (ex: 20%) entre les 5 ayants droit
+→ Trustless, irréversible, conforme au contrat initial
+
+🚀 L'INNOVATION TECHNIQUE
+Extension d'ERC-2981 sur Avalanche C-Chain :
+Fonction releasePrimary() : Permet la centralisation temporaire
+Fonction splitter() : Automatisation permanente des royalties
+Intégration NFC/Phygitale : Token-gating pour authentifier les œuvres physiques
+
+🎯 AVANTAGES CONCURRENTIELS
+✅ Legal-First : Respecte le droit d'auteur français
+✅ Flexibilité : Logique hybride centralisée/décentralisée
+✅ Phygital : Intégration NFC pour l'art physique tokenisé
+✅ Luxe : Interface de minting propriétaire (hors marketplace)
+
+📊 POTENTIEL BUSINESS
+🔹 Marché cible : Producteurs d'art, galeries, créateurs d'installations complexes
+🔹 Différenciation : Seule solution adaptée au cycle juridique français
+🔹 Use case pilote : Tokenisation d'œuvres historiques (années 90) avec authentification physique
+
+🛠️ MVP (2 SEMAINES)
+Smart Contract "Heritage" → Logique hybride primaire/secondaire
+Producer Dashboard → Interface de mapping contrats/wallets
+Module Phygital → Vérification NFC + token-gating
+
+🏆 POURQUOI AVALANCHE ?
+C-Chain : Infrastructure optimale pour la tokenisation d'actifs réels
+Faibles coûts : Permet la micro-répartition sans friction
+Rapidité : Expérience utilisateur fluide pour les galeries
+
+💬 "Le premier Smart Contract qui protège le producteur et les artistes AVANT de servir le marché"

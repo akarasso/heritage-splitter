@@ -1,0 +1,502 @@
+@import "tailwindcss";
+
+/* ─── Design System: Art Contemporain Bold ─── */
+
+:root {
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --noir: #08080c;
+  --noir-light: #111118;
+  --surface: #18181f;
+  --surface-light: #222230;
+  --border: #2a2a3a;
+  --border-light: #3a3a4d;
+
+  --cream: #f5f0eb;
+  --cream-muted: #d8d0c8;
+  --text-muted: #9898b0;
+
+  --accent: #ff3b3f;
+  --accent-glow: #ff3b3f40;
+  --accent-warm: #ff6b4a;
+  --gold: #d4a853;
+  --gold-glow: #d4a85340;
+  --emerald: #34d399;
+  --violet: #a78bfa;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--noir);
+  color: var(--cream);
+  min-height: 100vh;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Typography ─── */
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--cream) 0%, var(--gold) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-accent {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-warm) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Backgrounds ─── */
+
+.gradient-bg {
+  background: var(--noir);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255,59,63,0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 60%, rgba(212,168,83,0.06), transparent);
+}
+
+.noise-bg {
+  position: relative;
+}
+.noise-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.015'/%3E%3C/svg%3E");
+  background-size: 512px 512px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Cards ─── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  position: relative;
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  transform: translateY(-2px);
+}
+
+.card-glow {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  position: relative;
+  transition: all 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-glow:hover {
+  border-color: var(--gold);
+  box-shadow: 0 0 40px var(--gold-glow), 0 12px 40px rgba(0,0,0,0.5);
+  transform: translateY(-3px);
+}
+
+/* ─── Buttons ─── */
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-warm) 100%);
+  color: white;
+  font-family: var(--font-body);
+  font-weight: 600;
+  padding: 12px 28px;
+  border-radius: 12px;
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--accent-glow);
+}
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--cream-muted);
+  font-family: var(--font-body);
+  font-weight: 500;
+  padding: 12px 28px;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  transition: all 0.2s;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+.btn-secondary:hover {
+  border-color: var(--cream-muted);
+  color: var(--cream);
+  background: var(--surface-light);
+}
+
+.btn-gold {
+  background: linear-gradient(135deg, var(--gold) 0%, #c49340 100%);
+  color: var(--noir);
+  font-family: var(--font-body);
+  font-weight: 700;
+  padding: 14px 32px;
+  border-radius: 12px;
+  transition: all 0.2s;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 20px var(--gold-glow);
+}
+.btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--gold-glow);
+}
+.btn-gold:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 12px var(--gold-glow);
+}
+
+/* ─── Inputs ─── */
+
+.input {
+  background: var(--noir-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: var(--cream);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  width: 100%;
+  transition: all 0.2s;
+}
+.input::placeholder {
+  color: var(--text-muted);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+
+.label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ─── Dividers ─── */
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-light), transparent);
+  position: relative;
+  overflow: hidden;
+}
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  opacity: 0.3;
+  animation: shimmer-line 4s ease-in-out infinite;
+}
+@keyframes shimmer-line {
+  0% { left: -60%; }
+  100% { left: 160%; }
+}
+
+/* ─── Animations ─── */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(32px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-bottom {
+  from { opacity: 0; transform: translateY(60px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+  50% { box-shadow: 0 0 40px var(--accent-glow), 0 0 60px var(--gold-glow); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes draw-line {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.animate-fade-in {
+  opacity: 0;
+  animation: fade-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-fade-in-up {
+  opacity: 0;
+  animation: fade-in-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-fade-in-left {
+  opacity: 0;
+  animation: fade-in-left 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-fade-in-right {
+  opacity: 0;
+  animation: fade-in-right 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-fade-in-scale {
+  opacity: 0;
+  animation: fade-in-scale 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-slide-in {
+  opacity: 0;
+  animation: slide-in-bottom 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-glow {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(212,168,83,0.15) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ─── Modal Animations ─── */
+
+@keyframes modal-overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-card-enter {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-modal-overlay {
+  animation: modal-overlay-enter 0.2s ease-out forwards;
+}
+
+.animate-modal-card {
+  animation: modal-card-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Delay utilities */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+.delay-800 { animation-delay: 800ms; }
+
+/* Stagger children */
+.stagger > * {
+  opacity: 0;
+  animation: fade-in-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 80ms; }
+.stagger > *:nth-child(3) { animation-delay: 160ms; }
+.stagger > *:nth-child(4) { animation-delay: 240ms; }
+.stagger > *:nth-child(5) { animation-delay: 320ms; }
+.stagger > *:nth-child(6) { animation-delay: 400ms; }
+.stagger > *:nth-child(7) { animation-delay: 480ms; }
+.stagger > *:nth-child(8) { animation-delay: 560ms; }
+.stagger > *:nth-child(9) { animation-delay: 640ms; }
+
+/* ─── Sale Simulator Animations ─── */
+
+@keyframes sim-coin-drop {
+  0% { transform: translateY(-20px); opacity: 0; }
+  60% { transform: translateY(4px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes sim-pipe-draw {
+  from { stroke-dashoffset: 200; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes sim-burst {
+  0% { r: 0; opacity: 1; }
+  50% { r: 12; opacity: 0.6; }
+  100% { r: 5; opacity: 1; }
+}
+
+@keyframes sim-branch-draw {
+  from { stroke-dashoffset: 400; opacity: 0; }
+  to { stroke-dashoffset: 0; opacity: 0.8; }
+}
+
+@keyframes sim-node-arrive {
+  0% { transform: scale(0.3); opacity: 0; }
+  70% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes sim-amount-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sim-badge-appear {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pipe-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--gold-glow)); }
+  50% { filter: drop-shadow(0 0 12px var(--gold-glow)); }
+}
+
+.sim-coin-drop {
+  animation: sim-coin-drop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.sim-pipe-draw {
+  stroke-dasharray: 200;
+  animation: sim-pipe-draw 0.8s ease-out forwards, pipe-glow-pulse 2s ease-in-out infinite 0.8s;
+}
+
+.sim-burst {
+  animation: sim-burst 0.4s ease-out forwards;
+}
+
+.sim-branch-draw {
+  stroke-dasharray: 400;
+  animation: sim-branch-draw 0.6s ease-out forwards;
+}
+
+.sim-node-arrive {
+  animation: sim-node-arrive 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.sim-amount-reveal {
+  animation: sim-amount-reveal 0.4s ease-out forwards;
+  animation-delay: 0.2s;
+  opacity: 0;
+}
+
+.sim-badge-appear {
+  animation: sim-badge-appear 0.4s ease-out forwards;
+}
+
+/* ─── Role filter chips ─── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--cream-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chip:hover {
+  border-color: var(--border-light);
+  color: var(--cream);
+  background: var(--surface-light);
+}
+
+.chip-active {
+  border-color: var(--gold);
+  background: rgba(212, 168, 83, 0.12);
+  color: var(--gold);
+}
+
+.chip-active:hover {
+  border-color: var(--gold);
+  background: rgba(212, 168, 83, 0.18);
+  color: var(--gold);
+}

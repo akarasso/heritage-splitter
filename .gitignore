@@ -1,0 +1,33 @@
+# Rust
+backend/target/
+backend/heritage.db
+backend/heritage.db-*
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Foundry
+blockchain/out/
+blockchain/cache/
+blockchain/lib/
+
+# Environment
+.env
+*.env.local
+backend/.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kubernetes
+*.kubeconfig
+kubeconfig-*.yml
+k8s/prod/secrets.yaml

@@ -1,0 +1,12 @@
+{
+  "name": "heritage-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0",
+    "viem": "^2.47.0"
+  }
+}

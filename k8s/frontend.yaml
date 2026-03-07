@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: heritage-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: heritage-frontend
+  template:
+    metadata:
+      labels:
+        app: heritage-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: heritage-frontend
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: heritage-frontend
+  ports:
+    - port: 3000
+      targetPort: 3000

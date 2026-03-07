@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: heritage
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: heritage-splitter
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/part-of: heritage-splitter
+    spec:
+      imagePullSecrets:
+        - name: ovh-registry
+      containers:
+        - name: frontend
+          image: 97ksui70.c1.gra9.container-registry.ovh.net/heritage-splitter/heritage-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: heritage
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: heritage-splitter
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: frontend
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http

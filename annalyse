@@ -1,0 +1,102 @@
+Analyse Stratégique JTBD : Écosystème NFT et Phygital
+I. SYNTHÈSE EXÉCUTIVE
+L’enjeu stratégique majeur de ce projet réside dans la réconciliation entre le cadre rigide du droit d’auteur français (propriété intellectuelle immuable) et la flexibilité programmable de la blockchain. Pour pérenniser la valeur de collections numériques historiques, la technologie doit cesser d'être un simple support de vente pour devenir une infrastructure de confiance capable d'encoder des structures de gouvernance complexes et des contrats de production préexistants.
+Profil de l'utilisateur : Producteur et collectionneur d'art numérique des années 90, il agit en "gardien du patrimoine". Son catalogue possède une valeur unique car technologiquement irreproductible (réalisé sur des ordinateurs et avec des effets qui n'existent plus).
+Les 3 "Jobs-to-be-Done" (JTBD) critiques :
+Automatiser la conformité contractuelle : Distribuer les revenus entre ayants droit (artistes et producteur) sans risque de litige juridique.
+S'affranchir de la dépendance aux plateformes : Maîtriser la distribution via un canal propriétaire pour protéger l'aura "luxe" de la collection.
+Matérialiser l'immatériel par le Phygital : Donner une existence physique à l'œuvre (robots, impressions 3D, tapis) pour valider sa valeur aux yeux des collectionneurs traditionnels.
+Évaluation des 5 problématiques majeures :
+Mismatch Legal-Technique : Incapacité des smart contracts standards à gérer le rôle du "Producteur" (centralisation puis redistribution).
+Friction d'Onboarding Web3 : Le fossé entre l'achat impulsif en galerie ("Scan & Buy") et la complexité des wallets/gas fees.
+Durabilité et Spécificités Phygitales : Complexité d'intégration des puces dans des supports variés (Lito.io, broderies) et maintenance des installations (robots à écrans LED).
+Hiérarchisation du Catalogue : Difficulté à segmenter l'offre entre "pièces de musée" irreproductibles et "fond de catalogue" plus accessible.
+Dépendance aux Réseaux de Curation : Nécessité de validation par des hubs physiques (type Artifex) pour exister sur le marché.
+Recommandation stratégique globale : L'équipe produit doit développer une couche d'abstraction "Legal-Tech" permettant de mapper les contrats de production sur une architecture de smart contract personnalisée.
+=> une des priorités peut être de construire un outil de gestion multi-wallets propriétaire et un protocole d'authentification phygital robuste, plutôt que de s'appuyer sur des marketplaces tierces.
+--------------------------------------------------------------------------------
+II. MAPPING DES JOBS-TO-BE-DONE (JTBD)
+Le framework JTBD permet de dépasser les fonctionnalités techniques pour toucher l'aspiration profonde du collectionneur : la possession d'un fragment d'histoire numérique validé socialement et juridiquement.
+Catégorie de Job
+Description du besoin
+Verbatim source
+Principal
+Valoriser un patrimoine numérique irréproductible.
+"Des effets qui sont incalculables aujourd'hui [...] avec des ordis qui n’existent plus."
+Fonctionnel
+Automatiser la répartition multi-ayants droit dès la revente.
+"Directement dans le smart contract qui est tous les wallets."
+Émotionnel
+Sécuriser la position du producteur face au risque juridique.
+"Que personne puisse venir me faire un procès et que je perde."
+Social
+Appartenir à un écosystème d'innovation (Hub Artifex).
+"C'est comme une carte de membre d'une communauté."
+
+Dimension sociale : Le NFT comme "Membership Card"
+L'utilisateur ne vend pas seulement une image, mais un accès à un écosystème (Artifex, Théâtre de l'IA, studios de motion capture). La détention du NFT devient un levier de rétention : invitations aux avant-premières de séries documentaires, accès aux soirées, ou privilèges dans des quêtes. Cette "rareté sociale" compense l'immatérialité de l'actif.
+Tension : Contrôle du Producteur vs Autonomie Blockchain
+Il existe une tension majeure entre l'identité de "Producteur de cinéma" (qui centralise les fonds de la vente primaire pour les redistribuer manuellement selon les contrats) et la logique "on-chain" qui impose un split automatique. Le produit doit permettre cette phase hybride sans rompre la transparence promise aux artistes.
+--------------------------------------------------------------------------------
+III. ANALYSE DÉTAILLÉE DES PROBLÉMATIQUES UX
+L'expérience utilisateur dans l'art de luxe ne supporte aucune friction technique, sous peine de briser la "suspension d'incrédulité" nécessaire à l'achat d'un actif numérique.
+Points de friction identifiés
+Le "Gap" du Scan & Buy (Friction d'achat)
+Friction : Benjamin (Artifex) rêve d'un scan de QR Code immédiat, mais le parcours réel impose la création d'un wallet et l'achat d'ETH.
+Impact : Perte de vente impulsive en galerie.
+CRITICITÉ : HAUTE. C'est le principal obstacle au passage du monde physique au Web3.
+Gestion manuelle des royalties (Vente primaire)
+Friction : Le producteur effectue des transferts manuels d'Ether pour chaque ayant droit. "C'était compliqué."
+Impact : Anxiété de conformité, lourdeur administrative.
+CRITICITÉ : HAUTE. Risque d'erreur humaine et de rupture de confiance avec les artistes.
+Complexité des installations phygitales
+Friction : Installer des œuvres sur des supports non-standards (robots de 60cm faits de cubes LED).
+Impact : Difficulté de projection pour le collectionneur qui ne sait pas comment "exposer" son NFT.
+CRITICITÉ : MOYENNE. Limite le marché aux initiés technophiles.
+--------------------------------------------------------------------------------
+IV. ANALYSE DÉTAILLÉE DES PROBLÉMATIQUES TECHNIQUES
+Architecture des Smart Contracts et Splits
+La source souligne l'échec des solutions "off-the-shelf". Le besoin technique est celui d'un Payment Splitter extensible (basé sur le standard ERC-2981 pour les royalties) mais incluant une logique de "Primary Sale Transfer" vers le wallet du producteur, activant ensuite l'automatisation pour le marché secondaire.
+Intégration Phygitale : Lito.io
+
+Lito.io & Rendu 3D : L'intégration de puces NFC doit se faire dans des impressions à haute texture (épaisseur de peinture). La puce doit être indissociable du support (tapis, broderie, cadre du robot) pour garantir le lien certificat/œuvre.
+Hypothèse sur les échecs passés
+Les prestataires précédents ont probablement échoué en essayant de forcer l'utilisateur à entrer dans le moule d'OpenSea. Le besoin de Gil est une distribution propriétaire (minting sur son propre site) pour conserver la souveraineté sur les données et l'expérience de marque.
+--------------------------------------------------------------------------------
+V. PATTERNS ET INSIGHTS TRANSVERSES
+La valeur par l'irréproductibilité (Signal Faible)
+L'insight le plus fort concerne la nature de l'art des années 90 : ce n'est pas de l'IA, c'est du code "fossile". Cette valeur historique doit être au cœur de l'argumentaire de vente et de l'interface de la galerie numérique.
+Le Hub Physique comme Validation (Artifex)
+Le "Théâtre de l'IA" et les studios de motion capture de l'immeuble Artifex agissent comme un Validateur de Confiance. L'existence physique de la collection dans ce lieu de pointe valide la valeur digitale des actifs.
+Workarounds Révélateurs
+L'utilisation de transferts manuels en Ether montre une lacune logicielle critique : l'absence d'un outil de gestion de production "Web3-native" qui respecte le cycle de vie du droit d'auteur français.
+--------------------------------------------------------------------------------
+VII. RECOMMANDATIONS ACTIONNABLES (TOP 5)
+Développement du "Producer Contract" : Créer un smart contract gérant nativement 5 wallets avec une logique de répartition différenciée (Primaire vs Secondaire).
+Implémentation : Extension d'ERC-2981 avec une fonction de release manuelle pour la première vente.
+Standardisation de l'objet Robot : Concevoir le protocole de diffusion pour le robot à cubes LED (60cm) afin d'assurer que le NFT soit la clé de déverrouillage du contenu visuel sur l'installation.
+Onboarding Hybride (Fiat Gateway) : Intégrer une solution de paiement par carte bancaire (type Paper ou MoonPay) pour permettre aux collectionneurs d'art traditionnel d'acheter sans posséder de crypto-monnaie au préalable.
+Authentification Phygitale Lito.io : Collaborer avec Lito.io pour l'insertion de puces NFC "deep-embedded" dans l'épaisseur de l'impression, certifiant l'authenticité de l'œuvre physique via la solution Emblème.
+Activation de l'écosystème Artifex : Utiliser le NFT comme "Token-Gating" pour les événements physiques au Théâtre de l'IA (avant-premières, soirées mapping).
+--------------------------------------------------------------------------------
+VIII. QUESTIONS EN SUSPENS ET BESOINS DE VALIDATION
+Le processus de Discovery doit se concentrer sur les zones d'ombre suivantes :
+
+Juridique : Quelles sont les limites de l'extension des contrats  pour les nouveaux formats de "quêtes" et "jeux" ?
+Discovery Artifex : Interviewer Benjamin pour comprendre les échecs spécifiques d'OpenSea dans son contexte de galerie physique (Rendez-vous prévu début mars).
+L'objectif est de transformer cette collection historique en un modèle de succès phygital, où la technologie s'efface devant l'aura de l'œuvre tout en garantissant une sécurité juridique absolue.
+—-------------------------------------------
+
+Voici les principales problématiques évoquées dans la conversation qui constitueraient d'excellents sujets pour un hackathon, en mêlant les domaines de la blockchain, de l'art, du droit et de l'expérience utilisateur :
+1. La répartition automatisée des droits d'auteur via Smart Contract (Vente directe multi-wallets) L'utilisateur souhaite vendre ses œuvres numériques (NFT) directement depuis son propre site web, sans passer par des plateformes tierces.
+Le problème : L'art numérique implique souvent plusieurs créateurs. Selon le droit français, chaque auteur doit percevoir un pourcentage sur la vente initiale et sur toutes les reventes futures (royalties). Historiquement, il était très complexe de trouver une solution permettant d'intégrer directement sur un site web un smart contract capable de gérer de multiples portefeuilles (artistes, producteur).
+Idée de solution : Développer un outil "plug-and-play" pour les sites web d'artistes qui génère un smart contract sur mesure. Ce contrat distribuerait automatiquement les fonds vers de multiples "wallets" dès la première vente, puis appliquerait automatiquement la micro-répartition des royalties (ex: 20%) à chaque revente sur le marché secondaire, ad vitam aeternam.
+2. L'expérience d'achat "Phygitale" instantanée pour les galeries d'art L'utilisateur mentionne le cas d'une galerie physique (Artifex) qui expose à la fois des œuvres physiques et des œuvres numériques sur des écrans.
+Le problème : Les plateformes classiques comme OpenSea ne sont pas adaptées à l'expérience utilisateur d'un visiteur physiquement présent dans une galerie. De plus, le galeriste a besoin de prendre sa commission sur la vente tout en rémunérant l'artiste.
+Idée de solution : Créer une application d'achat par QR code. Un visiteur flashe le code devant l'écran de la galerie, achète le NFT instantanément, et le paiement est immédiatement divisé entre le wallet de la galerie (commission) et celui de l'artiste. Le système pourrait même intégrer des paiements non-crypto (carte bancaire) liés à un NFT en arrière-plan.
+3. La création d'"Utilities" et la Gamification pour les collectionneurs L'objectif n'est pas seulement de vendre, mais de créer une communauté et de valoriser la collection dans le temps.
+Le problème : Comment récompenser les détenteurs de NFT (les collectionneurs) et leur offrir des privilèges exclusifs de manière fluide ?
+Idée de solution : Développer des mécanismes liant la possession d'un NFT à des expériences réelles ou virtuelles. Par exemple, un système de "token-gating" permettant aux propriétaires de NFT d'accéder gratuitement à des événements physiques (expositions, raves party privées, avant-premières). Une autre piste d'innovation serait d'intégrer ces NFT comme "clés" dans un jeu vidéo ou une chasse au trésor, où posséder l'œuvre débloquerait des avantages uniques.
+4. La dissociation technologique entre l'installation physique et le certificat numérique L'utilisateur veut fabriquer des installations physiques complexes pour exposer l'art numérique, comme un petit robot recouvert d'écrans LED ou un tableau composé d'une mosaïque de tablettes.
+Le problème : Il existe une dissociation entre le propriétaire du matériel physique (l'installation) et le propriétaire de l'œuvre numérique (le NFT) diffusée sur ces écrans.
+Idée de solution : Concevoir un système de gestion d'affichage décentralisé. Une plateforme où les créateurs d'installations physiques peuvent se connecter de manière sécurisée aux wallets des collectionneurs pour obtenir le droit de diffuser leurs œuvres, créant ainsi un pont technique entre le hardware (écrans) et la blockchain, tout en respectant les droits d'exposition.
