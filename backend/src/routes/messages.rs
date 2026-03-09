@@ -15,7 +15,7 @@ pub struct ListMessagesQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ListThreadsQuery {
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
 }
 
 // ── Threads ──
@@ -28,17 +28,17 @@ pub async fn list_threads(
 ) -> AppResult<Json<Vec<ThreadDetail>>> {
     verify_project_member(&state.pool, &project_id, &claims).await?;
 
-    let threads: Vec<Thread> = if let Some(ref work_id) = query.work_id {
+    let threads: Vec<Thread> = if let Some(ref collection_id) = query.collection_id {
         sqlx::query_as(
-            "SELECT * FROM threads WHERE project_id = ? AND work_id = ? ORDER BY created_at DESC LIMIT 200"
+            "SELECT * FROM threads WHERE project_id = ? AND collection_id = ? ORDER BY created_at DESC LIMIT 200"
         )
         .bind(&project_id)
-        .bind(work_id)
+        .bind(collection_id)
         .fetch_all(&state.pool)
         .await?
     } else {
         sqlx::query_as(
-            "SELECT * FROM threads WHERE project_id = ? AND work_id IS NULL ORDER BY created_at DESC LIMIT 200"
+            "SELECT * FROM threads WHERE project_id = ? AND collection_id IS NULL ORDER BY created_at DESC LIMIT 200"
         )
         .bind(&project_id)
         .fetch_all(&state.pool)
@@ -68,7 +68,7 @@ pub async fn list_threads(
             status: t.status,
             conclusion: t.conclusion,
             concluded_by: t.concluded_by,
-            work_id: t.work_id,
+            collection_id: t.collection_id,
             created_at: t.created_at,
             author_name,
             author_avatar,
@@ -100,23 +100,23 @@ pub async fn create_thread(
         return Err(AppError::BadRequest("Content too long (max 10000 chars)".into()));
     }
 
-    // B2-9: Validate work_id length (UUID max 36 chars)
-    if let Some(ref wid) = body.work_id {
+    // B2-9: Validate collection_id length (UUID max 36 chars)
+    if let Some(ref wid) = body.collection_id {
         if wid.len() > 36 {
-            return Err(AppError::BadRequest("work_id too long (max 36 chars)".into()));
+            return Err(AppError::BadRequest("collection_id too long (max 36 chars)".into()));
         }
     }
 
     let thread_id = uuid::Uuid::new_v4().to_string();
 
     sqlx::query(
-        "INSERT INTO threads (id, project_id, author_id, title, work_id) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO threads (id, project_id, author_id, title, collection_id) VALUES (?, ?, ?, ?, ?)"
     )
     .bind(&thread_id)
     .bind(&project_id)
     .bind(&claims.user_id)
     .bind(&title)
-    .bind(&body.work_id)
+    .bind(&body.collection_id)
     .execute(&state.pool)
     .await?;
 
@@ -176,7 +176,7 @@ pub async fn create_thread(
         status: thread.status,
         conclusion: thread.conclusion,
         concluded_by: thread.concluded_by,
-        work_id: thread.work_id,
+        collection_id: thread.collection_id,
         created_at: thread.created_at,
         author_name,
         author_avatar,
@@ -259,7 +259,7 @@ pub async fn resolve_thread(
         status: updated.status,
         conclusion: updated.conclusion,
         concluded_by: updated.concluded_by,
-        work_id: updated.work_id,
+        collection_id: updated.collection_id,
         created_at: updated.created_at,
         author_name,
         author_avatar,
@@ -309,7 +309,7 @@ pub async fn reopen_thread(
         status: updated.status,
         conclusion: updated.conclusion,
         concluded_by: updated.concluded_by,
-        work_id: updated.work_id,
+        collection_id: updated.collection_id,
         created_at: updated.created_at,
         author_name,
         author_avatar,

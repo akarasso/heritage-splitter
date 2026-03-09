@@ -1,23 +1,9 @@
-mod config;
-mod db;
-mod error;
-mod middleware;
-mod models;
-mod routes;
-mod services;
-
 use std::sync::Arc;
 
-use axum::{
-    extract::DefaultBodyLimit,
-    middleware as axum_middleware,
-    routing::{delete, get, post, put},
-    Router,
-};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
-use tokio::sync::broadcast;
+use axum::Router;
 use axum::http::HeaderValue;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -26,8 +12,11 @@ use tower_http::request_id::{SetRequestIdLayer, PropagateRequestIdLayer, MakeReq
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::config::Config;
-use crate::services::notifications::WsEvent;
+use heritage_backend::config::Config;
+use heritage_backend::models;
+use heritage_backend::routes;
+use heritage_backend::services::notifications::WsEvent;
+use heritage_backend::{db, AppState, RateLimiter, build_router};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -55,9 +44,9 @@ use crate::services::notifications::WsEvent;
         models::Participant,
         models::CreateParticipant,
         models::UpdateParticipant,
-        models::Work,
-        models::CreateWork,
-        models::UpdateWork,
+        models::Collection,
+        models::CreateCollection,
+        models::UpdateCollection,
         models::Nft,
         models::MintNft,
         models::DraftNft,
@@ -97,7 +86,7 @@ use crate::services::notifications::WsEvent;
         (name = "Projects", description = "Project CRUD"),
         (name = "Allocations", description = "Allocation management"),
         (name = "Participants", description = "Participant management"),
-        (name = "Works", description = "Work/NFT collection management"),
+        (name = "Collections", description = "NFT collection management"),
         (name = "Documents", description = "Document management"),
         (name = "Messages", description = "Project discussion"),
         (name = "DM", description = "Direct messages"),
@@ -122,13 +111,6 @@ impl utoipa::Modify for SecurityAddon {
     }
 }
 
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: SqlitePool,
-    pub notifier: Arc<broadcast::Sender<WsEvent>>,
-    pub config: Config,
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -142,7 +124,8 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env();
 
     let connect_options: SqliteConnectOptions = config.database_url.parse::<SqliteConnectOptions>()?
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .foreign_keys(true);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(20)
@@ -156,8 +139,11 @@ async fn main() -> anyhow::Result<()> {
     // Ensure document storage directory exists
     std::fs::create_dir_all(&config.document_storage_path).ok();
 
-    // B2-11: Background task to clean expired nonces every 5 minutes
+    let rate_limiter = RateLimiter::default();
+
+    // Background task to clean expired nonces + rate limiter entries every 5 minutes
     let cleanup_pool = pool.clone();
+    let cleanup_rate_limiter = rate_limiter.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
         loop {
@@ -165,15 +151,50 @@ async fn main() -> anyhow::Result<()> {
             let _ = sqlx::query("DELETE FROM auth_nonces WHERE created_at < datetime('now', '-15 minutes')")
                 .execute(&cleanup_pool)
                 .await;
+            cleanup_rate_limiter.cleanup(std::time::Duration::from_secs(300));
         }
     });
 
+    // Initialize MinIO storage (optional — gracefully degrades if unavailable)
+    let storage = if !config.minio_endpoint.is_empty() {
+        match heritage_backend::services::storage::ImageStorage::new(
+            &config.minio_endpoint,
+            &config.minio_access_key,
+            &config.minio_secret_key,
+            &config.minio_bucket,
+        ).await {
+            Ok(s) => {
+                tracing::info!("MinIO storage initialized at {}", config.minio_endpoint);
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                tracing::warn!("MinIO storage unavailable ({}), image uploads disabled", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let addr = format!("{}:{}", config.host, config.port);
+
+    let rate_limit_per_min: u32 = std::env::var("RATE_LIMIT_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    let ws_rate_limit_per_min: u32 = std::env::var("WS_RATE_LIMIT_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
 
     let state = AppState {
         pool,
         notifier: Arc::new(tx),
         config,
+        rate_limiter,
+        rate_limit_per_min,
+        ws_rate_limit_per_min,
+        storage,
     };
 
     let cors = {
@@ -210,240 +231,12 @@ async fn main() -> anyhow::Result<()> {
             .allow_credentials(true)
     };
 
-    // Public routes (no auth)
-    let public_routes = Router::new()
-        .route("/api/health", get(routes::health::health_check))
-        .route("/api/ready", get(routes::health::readiness_check))
-        .route("/api/auth/nonce", post(routes::auth::get_nonce))
-        .route("/api/auth/verify", post(routes::auth::verify))
-        .route("/api/auth/logout", post(routes::auth::logout))
-        .route("/api/users", get(routes::users::list_users))
-        .route("/api/users/{wallet}", get(routes::users::get_user_by_wallet))
-        .route(
-            "/api/public/verify/{contract}/{tokenId}",
-            get(routes::public::verify_nft),
-        )
-        .route(
-            "/api/public/projects",
-            get(routes::public::list_public_projects),
-        )
-        .route(
-            "/api/public/projects/{id}",
-            get(routes::public::get_public_project),
-        )
-        .route(
-            "/api/public/collections/{slug}",
-            get(routes::public::get_public_collection),
-        )
-        .route(
-            "/api/metadata/{contract}/{tokenId}",
-            get(routes::public::nft_metadata),
-        )
-        .route(
-            "/api/images/nft/{nftId}",
-            get(routes::public::nft_image),
-        )
-        .route(
-            "/api/public/works/{workId}/history",
-            get(routes::public::work_history),
-        )
-        .route(
-            "/api/public/verify-document/{sha256_hash}",
-            get(routes::documents::verify_document),
-        )
-        .route(
-            "/api/documents/nonce/{wallet}",
-            get(routes::documents::get_certifier_nonce),
-        )
-        .route("/api/ws", get(routes::ws::ws_handler))
-;
-
-    // Protected routes (require JWT)
-    let protected_routes = Router::new()
-        .route("/api/me", get(routes::users::get_me).put(routes::users::update_me))
-        .route(
-            "/api/projects",
-            post(routes::projects::create_project).get(routes::projects::list_my_projects),
-        )
-        .route(
-            "/api/projects/{id}",
-            get(routes::projects::get_project).put(routes::projects::update_project),
-        )
-        .route(
-            "/api/projects/{id}/close",
-            post(routes::projects::close_project),
-        )
-        .route(
-            "/api/projects/{id}/reopen",
-            post(routes::projects::reopen_project),
-        )
-        .route(
-            "/api/projects/{id}/submit-for-approval",
-            post(routes::projects::submit_for_approval),
-        )
-        .route(
-            "/api/projects/{id}/approve-terms",
-            post(routes::projects::approve_terms),
-        )
-        .route(
-            "/api/projects/{id}/participants",
-            post(routes::participants::add_participant),
-        )
-        .route(
-            "/api/participants/{id}/accept",
-            put(routes::participants::accept_invitation),
-        )
-        .route(
-            "/api/participants/{id}/reject",
-            put(routes::participants::reject_invitation),
-        )
-        .route(
-            "/api/participants/{id}",
-            put(routes::participants::update_participant),
-        )
-        .route(
-            "/api/participants/{id}/kick",
-            put(routes::participants::kick_participant),
-        )
-        .route(
-            "/api/projects/{id}/allocations",
-            post(routes::allocations::create_allocation).get(routes::allocations::list_allocations),
-        )
-        .route(
-            "/api/allocations/{id}",
-            put(routes::allocations::update_allocation).delete(routes::allocations::delete_allocation),
-        )
-        .route(
-            "/api/allocations/{id}/recompute",
-            post(routes::allocations::recompute_shares),
-        )
-        // Works
-        .route(
-            "/api/projects/{id}/works",
-            post(routes::works::create_work).get(routes::works::list_works),
-        )
-        .route(
-            "/api/works/{id}",
-            get(routes::works::get_work).put(routes::works::update_work).delete(routes::works::delete_work),
-        )
-        .route(
-            "/api/works/{id}/submit-for-approval",
-            post(routes::works::submit_work_for_approval),
-        )
-        .route(
-            "/api/works/{id}/deploy",
-            post(routes::works::deploy_work),
-        )
-        .route(
-            "/api/works/{id}/approve",
-            post(routes::works::approve_work_terms),
-        )
-        .route(
-            "/api/works/{id}/validate-approval",
-            post(routes::works::validate_approval),
-        )
-        .route(
-            "/api/works/{id}/allocations",
-            post(routes::works::create_work_allocation),
-        )
-        .route(
-            "/api/works/{id}/mint",
-            post(routes::works::mint_work_nft),
-        )
-        .route(
-            "/api/works/{id}/nfts",
-            get(routes::works::list_work_nfts),
-        )
-        .route(
-            "/api/works/{id}/draft-nfts",
-            get(routes::works::list_draft_nfts).post(routes::works::create_draft_nft),
-        )
-        .route(
-            "/api/draft-nfts/{id}",
-            put(routes::works::update_draft_nft).delete(routes::works::delete_draft_nft),
-        )
-        .route(
-            "/api/works/{id}/submit-for-mint-approval",
-            post(routes::works::submit_for_mint_approval),
-        )
-        .route(
-            "/api/works/{id}/publish",
-            post(routes::works::publish_work),
-        )
-        .route(
-            "/api/works/{id}/unpublish",
-            post(routes::works::unpublish_work),
-        )
-        .route(
-            "/api/works/{id}/contracts",
-            put(routes::works::update_contracts),
-        )
-        .route(
-            "/api/projects/{id}/threads",
-            get(routes::messages::list_threads).post(routes::messages::create_thread),
-        )
-        .route(
-            "/api/threads/{id}/messages",
-            get(routes::messages::list_messages).post(routes::messages::create_message),
-        )
-        .route(
-            "/api/threads/{id}/resolve",
-            put(routes::messages::resolve_thread),
-        )
-        .route(
-            "/api/threads/{id}/reopen",
-            put(routes::messages::reopen_thread),
-        )
-        // Direct messages
-        .route("/api/dm/conversations", get(routes::direct_messages::list_conversations))
-        .route("/api/dm/{user_id}", get(routes::direct_messages::get_conversation).post(routes::direct_messages::send_message))
-        // Notifications
-        .route("/api/notifications", get(routes::notifications::list_notifications))
-        .route("/api/notifications/unread-count", get(routes::notifications::unread_count))
-        .route("/api/notifications/{id}/read", put(routes::notifications::mark_read))
-        .route("/api/notifications/read-all", put(routes::notifications::mark_all_read))
-        .route("/api/projects/{id}/activity", get(routes::notifications::get_project_activity))
-        // Documents (non-upload)
-        .route(
-            "/api/projects/{id}/documents",
-            get(routes::documents::list_documents),
-        )
-        .route(
-            "/api/documents/{id}/download",
-            get(routes::documents::download_document),
-        )
-        .route(
-            "/api/documents/{id}/certify",
-            post(routes::documents::certify_document),
-        )
-        .route(
-            "/api/documents/{id}/share",
-            post(routes::documents::share_document),
-        )
-        .route(
-            "/api/documents/{id}/share/{user_id}",
-            delete(routes::documents::revoke_document_access),
-        )
-        // AI endpoints (require auth)
-        .route("/api/ai/generate", post(routes::ai::generate))
-        .route("/api/ai/generate-image", post(routes::ai::generate_image))
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB default for protected routes (messages, JSON payloads)
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::auth_middleware));
-
-    // Document upload route with larger body limit (50MB)
-    let upload_routes = Router::new()
-        .route(
-            "/api/projects/{id}/documents",
-            post(routes::documents::upload_document),
-        )
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::auth_middleware));
-
-    let app = Router::new()
-        .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
-        .merge(public_routes)
-        .merge(upload_routes)
-        .merge(protected_routes)
+    let mut app = Router::new();
+    if state.config.environment != "production" {
+        app = app.merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()));
+    }
+    let app = app
+        .merge(build_router(state))
         .layer(cors)
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
@@ -463,7 +256,10 @@ async fn main() -> anyhow::Result<()> {
             axum::http::header::X_FRAME_OPTIONS,
             HeaderValue::from_static("DENY"),
         ))
-        .with_state(state);
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ));
 
     tracing::info!("Starting server on {}", addr);
 

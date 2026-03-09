@@ -1,0 +1,7 @@
+target/
+*.db
+.git
+.gitignore
+tests/
+Dockerfile
+.dockerignore

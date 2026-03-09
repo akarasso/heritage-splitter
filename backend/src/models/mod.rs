@@ -7,7 +7,8 @@ pub mod message;
 pub mod notification;
 pub mod direct_message;
 pub mod document;
-pub mod work;
+pub mod collection;
+pub mod showroom;
 
 pub use user::*;
 pub use project::*;
@@ -18,4 +19,5 @@ pub use message::*;
 pub use notification::*;
 pub use direct_message::*;
 pub use document::*;
-pub use work::*;
+pub use collection::*;
+pub use showroom::*;

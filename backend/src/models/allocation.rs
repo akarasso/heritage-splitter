@@ -14,7 +14,7 @@ pub struct Allocation {
     pub distribution_mode: String,
     pub sort_order: i64,
     pub receives_primary: bool,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
     pub created_at: NaiveDateTime,
 }
 
@@ -31,7 +31,7 @@ pub struct CreateAllocation {
     pub sort_order: i64,
     #[serde(default)]
     pub receives_primary: bool,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
 }
 
 fn default_role() -> String {
@@ -65,7 +65,7 @@ impl Allocation {
             distribution_mode: data.distribution_mode,
             sort_order: data.sort_order,
             receives_primary: data.receives_primary,
-            work_id: data.work_id,
+            collection_id: data.collection_id,
             created_at: chrono::Utc::now().naive_utc(),
         }
     }

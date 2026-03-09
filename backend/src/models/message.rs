@@ -28,7 +28,7 @@ pub struct Thread {
     pub status: String,
     pub conclusion: Option<String>,
     pub concluded_by: Option<String>,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
     pub created_at: NaiveDateTime,
 }
 
@@ -41,7 +41,7 @@ pub struct ThreadDetail {
     pub status: String,
     pub conclusion: Option<String>,
     pub concluded_by: Option<String>,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
     pub created_at: NaiveDateTime,
     pub author_name: String,
     pub author_avatar: String,
@@ -53,7 +53,7 @@ pub struct ThreadDetail {
 pub struct CreateThread {
     pub title: String,
     pub content: String,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]

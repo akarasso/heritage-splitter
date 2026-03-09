@@ -8,7 +8,8 @@ use axum::{
 
 use crate::error::{AppError, AppResult};
 use crate::middleware::Claims;
-use crate::models::{Document, DocumentAccess, DocumentResponse, ShareDocumentRequest, Project};
+use crate::models::{Document, DocumentAccess, DocumentResponse, ShareDocumentRequest, Project, Showroom};
+use crate::services::audit::audit_log;
 use crate::services::documents::{compute_sha256, decrypt_document, encrypt_document, certify_on_chain_for, get_certification_on_chain, get_certifier_on_chain, get_certifier_nonce_on_chain};
 use crate::AppState;
 
@@ -57,11 +58,13 @@ pub async fn upload_document(
         encrypt_document(&data).map_err(|e| AppError::Internal(e.to_string()))?;
 
     let doc_id = uuid::Uuid::new_v4().to_string();
-    // Store only the doc_id as filename; reconstruct full path at read time
+    // Audit note (issue 5 — false positive): Path traversal is impossible here because
+    // stored_filename is always a server-generated UUID (never user input). The canonical
+    // path validation below is defense-in-depth only.
     let stored_filename = doc_id.clone();
     let stored_path = format!("{}/{}", state.config.document_storage_path, stored_filename);
 
-    // Validate that the constructed path stays within storage directory
+    // Defense-in-depth: validate that the constructed path stays within storage directory
     let canonical_base = std::path::Path::new(&state.config.document_storage_path)
         .canonicalize()
         .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
@@ -189,13 +192,26 @@ pub async fn download_document(
         .await?
         .ok_or_else(|| AppError::NotFound("Document not found".into()))?;
 
-    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
-        .bind(&doc.project_id)
-        .fetch_one(&state.pool)
-        .await?;
+    // Check access based on owner type (project or showroom)
+    let is_owner = if let Some(ref sid) = doc.showroom_id {
+        if !sid.is_empty() {
+            let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+                .bind(sid)
+                .fetch_one(&state.pool)
+                .await?;
+            showroom.creator_id == claims.user_id
+        } else {
+            false
+        }
+    } else {
+        let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+            .bind(&doc.project_id)
+            .fetch_one(&state.pool)
+            .await?;
+        project.creator_id == claims.user_id
+    };
 
-    // Check access: creator always has access, others need document_access
-    if project.creator_id != claims.user_id {
+    if !is_owner {
         let access: Option<DocumentAccess> = sqlx::query_as(
             "SELECT * FROM document_access WHERE document_id = ? AND user_id = ?",
         )
@@ -203,7 +219,6 @@ pub async fn download_document(
         .bind(&claims.user_id)
         .fetch_optional(&state.pool)
         .await?;
-
         if access.is_none() {
             return Err(AppError::Forbidden("No access to this document".into()));
         }
@@ -254,13 +269,26 @@ pub async fn certify_document(
         .await?
         .ok_or_else(|| AppError::NotFound("Document not found".into()))?;
 
-    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
-        .bind(&doc.project_id)
-        .fetch_one(&state.pool)
-        .await?;
+    let is_owner = if let Some(ref sid) = doc.showroom_id {
+        if !sid.is_empty() {
+            let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+                .bind(sid)
+                .fetch_one(&state.pool)
+                .await?;
+            showroom.creator_id == claims.user_id
+        } else {
+            false
+        }
+    } else {
+        let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+            .bind(&doc.project_id)
+            .fetch_one(&state.pool)
+            .await?;
+        project.creator_id == claims.user_id
+    };
 
-    if project.creator_id != claims.user_id {
-        return Err(AppError::Forbidden("Only the creator can certify documents".into()));
+    if !is_owner {
+        return Err(AppError::Forbidden("Only the owner can certify documents".into()));
     }
 
     if doc.tx_hash.as_ref().is_some_and(|h| !h.is_empty()) {
@@ -391,6 +419,8 @@ pub async fn certify_document(
         .fetch_one(&state.pool)
         .await?;
 
+    audit_log(&state.pool, &claims.user_id, "certify", "document", &doc_id, &format!("Document certified on-chain, tx={}", tx_hash)).await;
+
     Ok(Json(DocumentResponse::from(updated)))
 }
 
@@ -406,13 +436,26 @@ pub async fn share_document(
         .await?
         .ok_or_else(|| AppError::NotFound("Document not found".into()))?;
 
-    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
-        .bind(&doc.project_id)
-        .fetch_one(&state.pool)
-        .await?;
+    let is_owner = if let Some(ref sid) = doc.showroom_id {
+        if !sid.is_empty() {
+            let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+                .bind(sid)
+                .fetch_one(&state.pool)
+                .await?;
+            showroom.creator_id == claims.user_id
+        } else {
+            false
+        }
+    } else {
+        let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+            .bind(&doc.project_id)
+            .fetch_one(&state.pool)
+            .await?;
+        project.creator_id == claims.user_id
+    };
 
-    if project.creator_id != claims.user_id {
-        return Err(AppError::Forbidden("Only the creator can share documents".into()));
+    if !is_owner {
+        return Err(AppError::Forbidden("Only the owner can share documents".into()));
     }
 
     // B2-8: Reject empty user_ids list
@@ -521,13 +564,26 @@ pub async fn revoke_document_access(
         .await?
         .ok_or_else(|| AppError::NotFound("Document not found".into()))?;
 
-    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
-        .bind(&doc.project_id)
-        .fetch_one(&state.pool)
-        .await?;
+    let is_owner = if let Some(ref sid) = doc.showroom_id {
+        if !sid.is_empty() {
+            let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+                .bind(sid)
+                .fetch_one(&state.pool)
+                .await?;
+            showroom.creator_id == claims.user_id
+        } else {
+            false
+        }
+    } else {
+        let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+            .bind(&doc.project_id)
+            .fetch_one(&state.pool)
+            .await?;
+        project.creator_id == claims.user_id
+    };
 
-    if project.creator_id != claims.user_id {
-        return Err(AppError::Forbidden("Only the creator can revoke access".into()));
+    if !is_owner {
+        return Err(AppError::Forbidden("Only the owner can revoke access".into()));
     }
 
     sqlx::query("DELETE FROM document_access WHERE document_id = ? AND user_id = ?")
@@ -537,4 +593,170 @@ pub async fn revoke_document_access(
         .await?;
 
     Ok(Json(serde_json::json!({ "revoked": true })))
+}
+
+pub async fn upload_showroom_document(
+    Extension(claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Path(showroom_id): Path<String>,
+    mut multipart: Multipart,
+) -> AppResult<Json<DocumentResponse>> {
+    let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+        .bind(&showroom_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Showroom not found".into()))?;
+
+    if showroom.creator_id != claims.user_id {
+        return Err(AppError::Forbidden("Only the creator can upload documents".into()));
+    }
+
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
+        .ok_or_else(|| AppError::BadRequest("No file provided".into()))?;
+
+    let original_name = field.file_name().unwrap_or("document").to_string();
+    let mime_type = field
+        .content_type()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let data = field
+        .bytes()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?;
+
+    let file_size = data.len() as i64;
+    let sha256_hash = compute_sha256(&data);
+
+    let (ciphertext, key_b64, iv_b64) =
+        encrypt_document(&data).map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let doc_id = uuid::Uuid::new_v4().to_string();
+    let stored_filename = doc_id.clone();
+    let stored_path = format!("{}/{}", state.config.document_storage_path, stored_filename);
+
+    let canonical_base = std::path::Path::new(&state.config.document_storage_path)
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve storage path: {}", e)))?;
+    let parent = std::path::Path::new(&stored_path).parent()
+        .ok_or_else(|| AppError::Internal("Invalid storage path".into()))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| AppError::Internal(format!("Failed to resolve file path: {}", e)))?;
+    if !canonical_parent.starts_with(&canonical_base) {
+        return Err(AppError::Forbidden("Invalid document path".into()));
+    }
+
+    tokio::fs::write(&stored_path, &ciphertext)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write file: {}", e)))?;
+
+    let sanitized_name = original_name
+        .replace(['/', '\\', '\0', '\r', '\n'], "_")
+        .trim_start_matches('.')
+        .to_string();
+    let sanitized_name = if sanitized_name.is_empty() { "document".to_string() } else { sanitized_name };
+
+    sqlx::query(
+        "INSERT INTO documents (id, project_id, showroom_id, uploader_id, original_name, mime_type, file_size, stored_path, sha256_hash, encryption_key, encryption_iv)
+         VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&doc_id)
+    .bind(&showroom_id)
+    .bind(&claims.user_id)
+    .bind(&sanitized_name)
+    .bind(&mime_type)
+    .bind(file_size)
+    .bind(&stored_filename)
+    .bind(&sha256_hash)
+    .bind(&key_b64)
+    .bind(&iv_b64)
+    .execute(&state.pool)
+    .await?;
+
+    let doc: Document = sqlx::query_as("SELECT * FROM documents WHERE id = ?")
+        .bind(&doc_id)
+        .fetch_one(&state.pool)
+        .await?;
+
+    Ok(Json(DocumentResponse::from(doc)))
+}
+
+pub async fn list_showroom_documents(
+    Extension(claims): Extension<Claims>,
+    State(state): State<AppState>,
+    Path(showroom_id): Path<String>,
+) -> AppResult<Json<Vec<DocumentResponse>>> {
+    let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
+        .bind(&showroom_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Showroom not found".into()))?;
+
+    let docs: Vec<Document> = if showroom.creator_id == claims.user_id {
+        sqlx::query_as("SELECT * FROM documents WHERE showroom_id = ? ORDER BY created_at DESC LIMIT 200")
+            .bind(&showroom_id)
+            .fetch_all(&state.pool)
+            .await?
+    } else {
+        // Check if user is an accepted participant
+        let participant: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM showroom_participants WHERE showroom_id = ? AND user_id = ? AND status = 'accepted'"
+        )
+        .bind(&showroom_id)
+        .bind(&claims.user_id)
+        .fetch_optional(&state.pool)
+        .await?;
+
+        if participant.is_none() {
+            return Err(AppError::Forbidden("No access to this showroom".into()));
+        }
+
+        sqlx::query_as(
+            "SELECT d.* FROM documents d
+             INNER JOIN document_access da ON da.document_id = d.id
+             WHERE d.showroom_id = ? AND da.user_id = ?
+             ORDER BY d.created_at DESC LIMIT 200",
+        )
+        .bind(&showroom_id)
+        .bind(&claims.user_id)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    let mut responses: Vec<DocumentResponse> = Vec::new();
+    for doc in docs {
+        let mut resp = DocumentResponse::from(doc.clone());
+        if resp.certified_at.is_some() {
+            let earliest: Option<Document> = sqlx::query_as(
+                "SELECT * FROM documents WHERE sha256_hash = ? AND tx_hash IS NOT NULL AND tx_hash != '' ORDER BY certified_at ASC LIMIT 1",
+            )
+            .bind(&doc.sha256_hash)
+            .fetch_optional(&state.pool)
+            .await?;
+
+            if let Some(ref orig) = earliest {
+                if resp.tx_hash.as_ref().map_or(true, |h| h.is_empty()) {
+                    resp.tx_hash = orig.tx_hash.clone();
+                }
+                if orig.id != doc.id {
+                    let proj: Option<Project> = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+                        .bind(&orig.project_id)
+                        .fetch_optional(&state.pool)
+                        .await?;
+                    resp.original_project_id = Some(orig.project_id.clone());
+                    resp.original_project_name = proj.map(|p| p.name);
+                    resp.original_certified_by = orig.certified_by.clone();
+                }
+            }
+
+            if resp.tx_hash.as_ref().map_or(true, |h| h.is_empty()) {
+                resp.certified_at = None;
+            }
+        }
+        responses.push(resp);
+    }
+    Ok(Json(responses))
 }

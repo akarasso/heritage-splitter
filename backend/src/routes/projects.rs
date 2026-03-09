@@ -73,6 +73,7 @@ pub async fn list_my_projects(
 }
 
 pub async fn get_project(
+    Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<ProjectDetail>> {
@@ -81,6 +82,10 @@ pub async fn get_project(
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    if !super::is_project_member(&state.pool, &id, &claims.user_id).await {
+        return Err(AppError::Forbidden("Not a member of this project".into()));
+    }
 
     let participants: Vec<Participant> = sqlx::query_as(
         "SELECT * FROM participants WHERE project_id = ? LIMIT 500"

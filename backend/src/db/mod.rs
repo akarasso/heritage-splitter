@@ -188,12 +188,12 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ).execute(pool).await?;
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS works (
+        "CREATE TABLE IF NOT EXISTS collections (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id),
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
-            work_type TEXT NOT NULL DEFAULT 'nft_collection',
+            collection_type TEXT NOT NULL DEFAULT 'nft_collection',
             status TEXT NOT NULL DEFAULT 'draft',
             royalty_bps INTEGER NOT NULL DEFAULT 1000,
             contract_nft_address TEXT,
@@ -203,10 +203,10 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         )"
     ).execute(pool).await?;
 
-    // Migration: add work_id to existing allocations and nfts tables
-    let _ = sqlx::query("ALTER TABLE allocations ADD COLUMN work_id TEXT REFERENCES works(id)")
+    // Migration: add collection_id to existing allocations and nfts tables
+    let _ = sqlx::query("ALTER TABLE allocations ADD COLUMN collection_id TEXT REFERENCES collections(id)")
         .execute(pool).await;
-    let _ = sqlx::query("ALTER TABLE nfts ADD COLUMN work_id TEXT REFERENCES works(id)")
+    let _ = sqlx::query("ALTER TABLE nfts ADD COLUMN collection_id TEXT REFERENCES collections(id)")
         .execute(pool).await;
 
     // Migration: add artist_number to users
@@ -221,8 +221,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("ALTER TABLE documents ADD COLUMN certified_by TEXT")
         .execute(pool).await;
 
-    // Migration: add work_id to threads for per-work discussion filtering
-    let _ = sqlx::query("ALTER TABLE threads ADD COLUMN work_id TEXT REFERENCES works(id)")
+    // Migration: add collection_id to threads for per-collection discussion filtering
+    let _ = sqlx::query("ALTER TABLE threads ADD COLUMN collection_id TEXT REFERENCES collections(id)")
         .execute(pool).await;
 
     // Migration: add description, image_url, price, attributes to nfts
@@ -235,10 +235,14 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("ALTER TABLE nfts ADD COLUMN attributes TEXT NOT NULL DEFAULT '[]'")
         .execute(pool).await;
 
+    // Migration: add showroom_id to documents for showroom document support
+    let _ = sqlx::query("ALTER TABLE documents ADD COLUMN showroom_id TEXT REFERENCES showrooms(id)")
+        .execute(pool).await;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS draft_nfts (
             id TEXT PRIMARY KEY,
-            work_id TEXT NOT NULL REFERENCES works(id),
+            collection_id TEXT NOT NULL REFERENCES collections(id),
             title TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             artist_name TEXT NOT NULL DEFAULT '',
@@ -250,36 +254,108 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         )"
     ).execute(pool).await?;
 
-    // Migration: add vault, public_slug, is_public to works
-    let _ = sqlx::query("ALTER TABLE works ADD COLUMN contract_vault_address TEXT")
+    // Migration: add market, public_slug, is_public to collections
+    let _ = sqlx::query("ALTER TABLE collections ADD COLUMN contract_market_address TEXT")
         .execute(pool).await;
-    let _ = sqlx::query("ALTER TABLE works ADD COLUMN public_slug TEXT")
+    let _ = sqlx::query("ALTER TABLE collections ADD COLUMN public_slug TEXT")
         .execute(pool).await;
-    let _ = sqlx::query("ALTER TABLE works ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
+    let _ = sqlx::query("ALTER TABLE collections ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
         .execute(pool).await;
 
-    // Migration: add deploy_block_number to works
-    let _ = sqlx::query("ALTER TABLE works ADD COLUMN deploy_block_number INTEGER")
+    // Migration: add deploy_block_number to collections
+    let _ = sqlx::query("ALTER TABLE collections ADD COLUMN deploy_block_number INTEGER")
         .execute(pool).await;
 
     // Cache table for on-chain events (avoid re-fetching from RPC)
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS work_events (
+        "CREATE TABLE IF NOT EXISTS collection_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            work_id TEXT NOT NULL REFERENCES works(id),
+            collection_id TEXT NOT NULL REFERENCES collections(id),
             event_type TEXT NOT NULL,
             block_number INTEGER NOT NULL,
             tx_hash TEXT NOT NULL,
             data TEXT NOT NULL DEFAULT '{}',
-            UNIQUE(work_id, event_type, tx_hash, block_number)
+            UNIQUE(collection_id, event_type, tx_hash, block_number)
         )"
     ).execute(pool).await?;
 
-    // Track last scanned block per work
+    // Track last scanned block per collection
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS work_events_cursor (
-            work_id TEXT PRIMARY KEY REFERENCES works(id),
+        "CREATE TABLE IF NOT EXISTS collection_events_cursor (
+            collection_id TEXT PRIMARY KEY REFERENCES collections(id),
             last_scanned_block INTEGER NOT NULL
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS showrooms (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'draft',
+            creator_id TEXT NOT NULL REFERENCES users(id),
+            contract_address TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS showroom_participants (
+            id TEXT PRIMARY KEY,
+            showroom_id TEXT NOT NULL REFERENCES showrooms(id),
+            user_id TEXT NOT NULL REFERENCES users(id),
+            status TEXT NOT NULL DEFAULT 'invited',
+            invited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            accepted_at DATETIME,
+            UNIQUE(showroom_id, user_id)
+        )"
+    ).execute(pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS showroom_listings (
+            id TEXT PRIMARY KEY,
+            showroom_id TEXT NOT NULL REFERENCES showrooms(id),
+            nft_contract TEXT NOT NULL,
+            token_id INTEGER NOT NULL,
+            base_price TEXT NOT NULL DEFAULT '0',
+            margin TEXT NOT NULL DEFAULT '0',
+            proposed_by TEXT NOT NULL REFERENCES users(id),
+            status TEXT NOT NULL DEFAULT 'proposed',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"
+    ).execute(pool).await?;
+
+    // Migration: add NFT details to showroom_listings
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        .execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+        .execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN artist_name TEXT NOT NULL DEFAULT ''")
+        .execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN collection_id TEXT")
+        .execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN collection_name TEXT NOT NULL DEFAULT ''")
+        .execute(pool).await;
+
+    // Migration: add public_slug, is_public to showrooms
+    let _ = sqlx::query("ALTER TABLE showrooms ADD COLUMN public_slug TEXT")
+        .execute(pool).await;
+    let _ = sqlx::query("ALTER TABLE showrooms ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
+        .execute(pool).await;
+
+    // Migration: add showroom_item_id to showroom_listings
+    let _ = sqlx::query("ALTER TABLE showroom_listings ADD COLUMN showroom_item_id INTEGER")
+        .execute(pool).await;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS audit_logs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL DEFAULT '',
+            details TEXT NOT NULL DEFAULT '{}',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )"
     ).execute(pool).await?;
 
@@ -302,9 +378,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_participants_allocation_id ON participants(allocation_id)",
         "CREATE INDEX IF NOT EXISTS idx_participants_user_id ON participants(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_allocations_project_id ON allocations(project_id)",
-        "CREATE INDEX IF NOT EXISTS idx_allocations_work_id ON allocations(work_id)",
+        "CREATE INDEX IF NOT EXISTS idx_allocations_collection_id ON allocations(collection_id)",
         "CREATE INDEX IF NOT EXISTS idx_nfts_project_id ON nfts(project_id)",
-        "CREATE INDEX IF NOT EXISTS idx_nfts_work_id ON nfts(work_id)",
+        "CREATE INDEX IF NOT EXISTS idx_nfts_collection_id ON nfts(collection_id)",
         "CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id)",
         "CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)",
@@ -312,43 +388,24 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_documents_project_id ON documents(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_documents_sha256_hash ON documents(sha256_hash)",
         "CREATE INDEX IF NOT EXISTS idx_document_access_document_id ON document_access(document_id)",
-        "CREATE INDEX IF NOT EXISTS idx_works_project_id ON works(project_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_works_public_slug ON works(public_slug) WHERE public_slug IS NOT NULL",
-        "CREATE INDEX IF NOT EXISTS idx_draft_nfts_work_id ON draft_nfts(work_id)",
-        "CREATE INDEX IF NOT EXISTS idx_work_events_work_id ON work_events(work_id)",
+        "CREATE INDEX IF NOT EXISTS idx_collections_project_id ON collections(project_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_collections_public_slug ON collections(public_slug) WHERE public_slug IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_draft_nfts_collection_id ON draft_nfts(collection_id)",
+        "CREATE INDEX IF NOT EXISTS idx_collection_events_collection_id ON collection_events(collection_id)",
         "CREATE INDEX IF NOT EXISTS idx_direct_messages_sender ON direct_messages(sender_id)",
         "CREATE INDEX IF NOT EXISTS idx_direct_messages_recipient ON direct_messages(recipient_id)",
+        "CREATE INDEX IF NOT EXISTS idx_showrooms_creator_id ON showrooms(creator_id)",
+        "CREATE INDEX IF NOT EXISTS idx_showroom_participants_showroom_id ON showroom_participants(showroom_id)",
+        "CREATE INDEX IF NOT EXISTS idx_showroom_participants_user_id ON showroom_participants(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_showroom_listings_showroom_id ON showroom_listings(showroom_id)",
+        "CREATE INDEX IF NOT EXISTS idx_documents_showroom_id ON documents(showroom_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_showrooms_public_slug ON showrooms(public_slug) WHERE public_slug IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id)",
     ];
     for idx in indexes {
         sqlx::query(idx).execute(pool).await?;
     }
 
-    // Seed demo data (only if empty)
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(pool)
-        .await?;
-
-    if user_count == 0 {
-        seed_demo_data(pool).await?;
-    }
-
-    Ok(())
-}
-
-async fn seed_demo_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    // ── Users (real wallets on Avalanche Fuji) ───────────────────────
-    // Private keys stored in scripts/wallets.env — NOT in code
-    let users = [
-        ("u-producer-01", "0x2d641f4aa137787e3bd34b132bb21e54c437ef6f", "Pierre Durand",       "producer", "Contemporary art producer, specialized in limited editions."),
-        ("u-artist-01",   "0x1bbc56f627b1e759afc79eec651a840ff8d09621", "Marie Lefevre",       "artist",   "Visual artist working with digital media and photography."),
-        ("u-gallery-01",  "0x1c3ca0b7d45a4dcfe0e25f83b7731f523f564c38", "Galerie Rive Gauche", "gallery",  "Contemporary art gallery, Paris 6th arrondissement."),
-    ];
-    for (id, wallet, name, role, bio) in users {
-        sqlx::query("INSERT OR IGNORE INTO users (id, wallet_address, display_name, role, bio, is_bot) VALUES (?, ?, ?, ?, ?, 1)")
-            .bind(id).bind(wallet).bind(name).bind(role).bind(bio)
-            .execute(pool).await?;
-    }
-
-    tracing::info!("Seeded 3 demo users with real Avalanche wallets");
     Ok(())
 }

@@ -55,6 +55,15 @@ pub async fn get_nonce(
     Json(body): Json<NonceRequest>,
 ) -> AppResult<Json<NonceResponse>> {
     let wallet = body.wallet_address.to_lowercase();
+
+    // Rate limit: 10 nonce requests per minute per wallet
+    if !state.rate_limiter.check(
+        &format!("nonce:{}", wallet),
+        10,
+        std::time::Duration::from_secs(60),
+    ) {
+        return Err(AppError::TooManyRequests("Too many requests, please try again later".into()));
+    }
     let nonce: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(32)
@@ -86,6 +95,15 @@ pub async fn verify(
     Json(body): Json<VerifyRequest>,
 ) -> AppResult<impl IntoResponse> {
     let wallet = body.wallet_address.to_lowercase();
+
+    // Rate limit: 5 verify attempts per minute per wallet
+    if !state.rate_limiter.check(
+        &format!("verify:{}", wallet),
+        5,
+        std::time::Duration::from_secs(60),
+    ) {
+        return Err(AppError::TooManyRequests("Too many attempts, please try again later".into()));
+    }
 
     // Verify nonce exists and is not expired (15 min TTL)
     // B2-11: Nonce cleanup only runs on verify calls. This is acceptable because the 15-min TTL
@@ -168,10 +186,20 @@ pub async fn verify(
         }
     };
 
+    // Audit log: successful authentication
+    crate::services::audit::audit_log(
+        &state.pool,
+        &user_id,
+        if user_exists { "login" } else { "register" },
+        "user",
+        &user_id,
+        &format!("{{\"wallet\":\"{}\"}}", wallet),
+    ).await;
+
     let claims = Claims {
         sub: wallet,
         user_id,
-        exp: (Utc::now().timestamp() + 86400 * 7) as usize, // 7 days
+        exp: (Utc::now().timestamp() + 86400) as usize, // 24 hours
     };
 
     let token = encode(
@@ -183,7 +211,7 @@ pub async fn verify(
 
     // Build Set-Cookie header for HttpOnly session cookie
     let mut cookie = format!(
-        "heritage_session={}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=604800",
+        "heritage_session={}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=86400",
         token
     );
     if state.config.secure_cookies {

@@ -4,7 +4,7 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 
 use crate::middleware::Claims;
 use crate::AppState;
@@ -14,51 +14,81 @@ pub async fn ws_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    // Extract token from Sec-WebSocket-Protocol header ("bearer, <token>")
-    let token = headers
-        .get("sec-websocket-protocol")
+    // Rate limit WS connections by IP (configurable via WS_RATE_LIMIT_PER_MIN, default 5)
+    let ip = headers.get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            let parts: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
-            if parts.len() >= 2 && parts[0] == "bearer" {
-                Some(parts[1].to_string())
-            } else {
-                None
-            }
+        .and_then(|v| v.split(',').last())
+        .unwrap_or("anon")
+        .trim()
+        .to_string();
+    let rate_key = format!("ws:{}", ip);
+    let ws_limit = state.ws_rate_limit_per_min;
+    if !state.rate_limiter.check(&rate_key, ws_limit, std::time::Duration::from_secs(60)) {
+        return ws.on_upgrade(|mut socket| async move {
+            let _ = socket.close().await;
         });
+    }
 
-    let token = match token {
-        Some(t) => t,
-        None => {
-            return ws.on_upgrade(|mut socket| async move {
-                let _ = socket.close().await;
-            });
+    // Accept upgrade unconditionally — auth happens via first message
+    ws.on_upgrade(move |socket| handle_auth(socket, state))
+}
+
+/// Wait for the first message to be an auth message, then start the session.
+/// Close the socket if auth fails or times out (5s).
+async fn handle_auth(socket: WebSocket, state: AppState) {
+    let (mut sender, mut receiver) = socket.split();
+
+    // 5 second timeout for auth message
+    let auth_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        async {
+            while let Some(Ok(msg)) = receiver.next().await {
+                if let Message::Text(text) = msg {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if parsed.get("type").and_then(|t| t.as_str()) == Some("auth") {
+                            if let Some(token) = parsed.get("token").and_then(|t| t.as_str()) {
+                                let claims = decode::<Claims>(
+                                    token,
+                                    &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+                                    &Validation::new(Algorithm::HS256),
+                                );
+                                if let Ok(token_data) = claims {
+                                    return Some(token_data.claims.user_id);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Non-auth message or invalid — close
+                return None;
+            }
+            None
+        }
+    ).await;
+
+    let user_id = match auth_result {
+        Ok(Some(uid)) => uid,
+        _ => {
+            let _ = sender.close().await;
+            return;
         }
     };
 
-    let claims = decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        &Validation::default(),
-    );
+    // Send auth_ok
+    let _ = sender.send(Message::Text(
+        serde_json::json!({"type": "auth_ok"}).to_string().into()
+    )).await;
 
-    match claims {
-        Ok(token_data) => {
-            let user_id = token_data.claims.user_id;
-            ws.protocols(["bearer"])
-                .on_upgrade(move |socket| handle_socket(socket, state, user_id))
-        }
-        Err(_) => {
-            ws.on_upgrade(|mut socket| async move {
-                let _ = socket.close().await;
-            })
-        }
-    }
+    // Proceed with normal socket handling
+    handle_socket(sender, receiver, state, user_id).await;
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState, user_id: String) {
-    let (mut sender, mut receiver) = socket.split();
-
+async fn handle_socket(
+    mut sender: futures::stream::SplitSink<WebSocket, Message>,
+    mut receiver: futures::stream::SplitStream<WebSocket>,
+    state: AppState,
+    user_id: String,
+) {
     let mut rx = state.notifier.subscribe();
 
     // Forward broadcast events to this user's websocket

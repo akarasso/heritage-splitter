@@ -5,6 +5,7 @@ use crate::error::{AppError, AppResult};
 use crate::middleware::Claims;
 use crate::models::{Participant, CreateParticipant, UpdateParticipant, Project, Allocation};
 use crate::routes::allocations::recompute_allocation_shares;
+use crate::services::audit::audit_log;
 use crate::services::notifications::create_notification;
 use crate::AppState;
 
@@ -127,7 +128,7 @@ pub async fn add_participant(
 
     participant.user_id = user_id.or(participant.user_id);
 
-    // Auto-accept if user is already an accepted project member (for work allocation invites)
+    // Auto-accept if user is already an accepted project member (for collection allocation invites)
     if participant.allocation_id.is_some() {
         let already_accepted: bool = sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM participants WHERE project_id = ? AND wallet_address = ? AND allocation_id IS NULL AND status = 'accepted'"
@@ -255,62 +256,6 @@ pub async fn add_participant(
                 Some(&participant.project_id),
                 Some(&participant.id),
             ).await;
-        }
-    }
-
-    // Auto-accept for bot users
-    if let Some(ref uid) = participant.user_id {
-        let is_bot: bool = sqlx::query_scalar::<_, bool>("SELECT is_bot FROM users WHERE id = ?")
-            .bind(uid)
-            .fetch_optional(&state.pool)
-            .await?
-            .unwrap_or(false);
-
-        if is_bot {
-            let pool = state.pool.clone();
-            let notifier = state.notifier.clone();
-            let participant_id = participant.id.clone();
-            let project_name = project.name.clone();
-            let bot_user_id = uid.clone();
-            let project_id_clone = participant.project_id.clone();
-            let creator_id = project.creator_id.clone();
-            let bot_display_name = invited_name.clone();
-            let bot_delay = state.config.bot_delay_secs;
-            let alloc_id = participant.allocation_id.clone();
-
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(bot_delay)).await;
-
-                let result = sqlx::query(
-                    "UPDATE participants SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'invited'"
-                )
-                .bind(&participant_id)
-                .execute(&pool)
-                .await;
-
-                match result {
-                    Ok(r) if r.rows_affected() > 0 => {
-                        // B4-3: Recompute shares after bot auto-accept
-                        if let Some(ref aid) = alloc_id {
-                            let _ = crate::routes::allocations::recompute_allocation_shares(&pool, aid).await;
-                        }
-                        // Notify the creator so their UI updates in real-time
-                        let _ = create_notification(
-                            &pool,
-                            &notifier,
-                            &creator_id,
-                            "invitation_accepted",
-                            &format!("{} joined {}", bot_display_name, project_name),
-                            "",
-                            Some(&project_id_clone),
-                            Some(&participant_id),
-                        ).await;
-                        tracing::info!("Bot {} auto-accepted invitation {}", bot_user_id, participant_id);
-                    }
-                    Ok(_) => tracing::debug!("Bot auto-accept skipped (already handled): {}", participant_id),
-                    Err(e) => tracing::error!("Bot auto-accept failed: {}", e),
-                }
-            });
         }
     }
 
@@ -461,6 +406,8 @@ pub async fn kick_participant(
         .bind(&participant_id)
         .fetch_one(&state.pool)
         .await?;
+
+    audit_log(&state.pool, &claims.user_id, "kick", "participant", &participant_id, &format!("Kicked from project {}", project.id)).await;
 
     Ok(Json(updated))
 }

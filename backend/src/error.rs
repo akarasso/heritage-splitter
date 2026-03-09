@@ -19,6 +19,9 @@ pub enum AppError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -36,7 +39,11 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
-            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
+            AppError::Internal(msg) => {
+                tracing::error!("Internal error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+            }
             AppError::Sqlx(e) => {
                 tracing::error!("Database error: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
@@ -47,9 +54,6 @@ impl IntoResponse for AppError {
             }
         };
 
-        if status.is_server_error() && !matches!(&self, AppError::Sqlx(_) | AppError::Anyhow(_)) {
-            tracing::error!("Server error {}: {}", status, message);
-        }
 
         (status, Json(json!({ "error": message }))).into_response()
     }

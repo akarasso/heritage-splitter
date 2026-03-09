@@ -1,3 +1,9 @@
+// Security note (B17 — accepted risk): Encryption keys are stored in the same SQLite database
+// as encrypted file references. The threat model protects against filesystem-level access
+// (encrypted files on the volume), not database compromise. If an attacker has DB access,
+// they also have access to the encrypted files on the same PVC. A separate key management
+// system (e.g., HashiCorp Vault) would mitigate this but is out of scope for the current
+// architecture.
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, AeadCore,

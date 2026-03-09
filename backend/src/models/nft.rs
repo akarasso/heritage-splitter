@@ -15,14 +15,15 @@ pub struct Nft {
     pub price: String,
     pub attributes: String,
     pub phase: String,
-    pub work_id: Option<String>,
+    pub collection_id: Option<String>,
     pub minted_at: NaiveDateTime,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct MintNft {
     pub title: String,
-    pub artist_name: String,
+    #[serde(default)]
+    pub artist_name: Option<String>,
     #[serde(default)]
     pub draft_nft_id: Option<String>,
 }
@@ -30,7 +31,7 @@ pub struct MintNft {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct DraftNft {
     pub id: String,
-    pub work_id: String,
+    pub collection_id: String,
     pub title: String,
     pub description: String,
     pub artist_name: String,

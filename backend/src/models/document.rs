@@ -5,6 +5,7 @@ use sqlx::FromRow;
 pub struct Document {
     pub id: String,
     pub project_id: String,
+    pub showroom_id: Option<String>,
     pub uploader_id: String,
     pub original_name: String,
     pub mime_type: String,
@@ -26,6 +27,8 @@ pub struct Document {
 pub struct DocumentResponse {
     pub id: String,
     pub project_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub showroom_id: Option<String>,
     pub uploader_id: String,
     pub original_name: String,
     pub mime_type: String,
@@ -48,6 +51,7 @@ impl From<Document> for DocumentResponse {
         Self {
             id: d.id,
             project_id: d.project_id,
+            showroom_id: d.showroom_id,
             uploader_id: d.uploader_id,
             original_name: d.original_name,
             mime_type: d.mime_type,

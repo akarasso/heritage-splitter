@@ -4,7 +4,7 @@ use sqlx::{Acquire, SqlitePool};
 
 use crate::error::{AppError, AppResult};
 use crate::middleware::Claims;
-use crate::models::{Allocation, CreateAllocation, UpdateAllocation, Participant, Project, Work};
+use crate::models::{Allocation, CreateAllocation, UpdateAllocation, Participant, Project, Collection};
 use crate::AppState;
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -66,9 +66,9 @@ pub async fn create_allocation(
         return Err(AppError::BadRequest("distribution_mode must be 'equal' or 'custom'".into()));
     }
 
-    // Check sum of existing project-level allocations (work_id IS NULL) + new one doesn't exceed 10000
+    // Check sum of existing project-level allocations (collection_id IS NULL) + new one doesn't exceed 10000
     let existing_sum: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE project_id = ? AND work_id IS NULL"
+        "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE project_id = ? AND collection_id IS NULL"
     )
     .bind(&project_id)
     .fetch_one(&state.pool)
@@ -103,9 +103,13 @@ pub async fn create_allocation(
 }
 
 pub async fn list_allocations(
+    Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(project_id): Path<String>,
 ) -> AppResult<Json<Vec<AllocationDetail>>> {
+    if !super::is_project_member(&state.pool, &project_id, &claims.user_id).await {
+        return Err(AppError::Forbidden("Not a member of this project".into()));
+    }
     let allocations: Vec<Allocation> = sqlx::query_as(
         "SELECT * FROM allocations WHERE project_id = ? ORDER BY sort_order, created_at LIMIT 100"
     )
@@ -157,23 +161,23 @@ pub async fn update_allocation(
         return Err(AppError::Forbidden("Not project creator".into()));
     }
 
-    // If allocation belongs to a work, check work status; otherwise check project status
-    if let Some(ref wid) = alloc.work_id {
-        let work: Work = sqlx::query_as("SELECT * FROM works WHERE id = ?")
+    // If allocation belongs to a collection, check collection status; otherwise check project status
+    if let Some(ref wid) = alloc.collection_id {
+        let collection: Collection = sqlx::query_as("SELECT * FROM collections WHERE id = ?")
             .bind(wid)
             .fetch_one(&state.pool)
             .await?;
-        if ["pending_approval", "approved"].contains(&work.status.as_str()) {
+        if ["pending_approval", "approved"].contains(&collection.status.as_str()) {
             // Auto-reset to draft
-            sqlx::query("UPDATE works SET status = 'draft' WHERE id = ?")
+            sqlx::query("UPDATE collections SET status = 'draft' WHERE id = ?")
                 .bind(wid).execute(&state.pool).await?;
-            // B2-6: Only reset approvals for participants of THIS allocation, not all allocations of the work
+            // B2-6: Only reset approvals for participants of THIS allocation, not all allocations of the collection
             sqlx::query(
                 "UPDATE participants SET approved_at = NULL
                  WHERE allocation_id = ? AND status NOT IN ('rejected', 'kicked')"
             ).bind(&allocation_id).execute(&state.pool).await?;
-        } else if work.status != "draft" {
-            return Err(AppError::BadRequest("Can only edit draft works".into()));
+        } else if collection.status != "draft" {
+            return Err(AppError::BadRequest("Can only edit draft collections".into()));
         }
     } else if project.status != "draft" {
         return Err(AppError::BadRequest("Can only edit drafts".into()));
@@ -184,9 +188,9 @@ pub async fn update_allocation(
         if new_bps <= 0 || new_bps > 10000 {
             return Err(AppError::BadRequest("total_bps must be between 1 and 10000".into()));
         }
-        let other_sum: i64 = if let Some(ref wid) = alloc.work_id {
+        let other_sum: i64 = if let Some(ref wid) = alloc.collection_id {
             sqlx::query_scalar(
-                "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE work_id = ? AND id != ?"
+                "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE collection_id = ? AND id != ?"
             )
             .bind(wid)
             .bind(&allocation_id)
@@ -194,7 +198,7 @@ pub async fn update_allocation(
             .await?
         } else {
             sqlx::query_scalar(
-                "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE project_id = ? AND id != ? AND work_id IS NULL"
+                "SELECT COALESCE(SUM(total_bps), 0) FROM allocations WHERE project_id = ? AND id != ? AND collection_id IS NULL"
             )
             .bind(&alloc.project_id)
             .bind(&allocation_id)
@@ -288,22 +292,22 @@ pub async fn delete_allocation(
         return Err(AppError::Forbidden("Not project creator".into()));
     }
 
-    // If allocation belongs to a work, check work status; otherwise check project status
-    if let Some(ref wid) = alloc.work_id {
-        let work: Work = sqlx::query_as("SELECT * FROM works WHERE id = ?")
+    // If allocation belongs to a collection, check collection status; otherwise check project status
+    if let Some(ref wid) = alloc.collection_id {
+        let collection: Collection = sqlx::query_as("SELECT * FROM collections WHERE id = ?")
             .bind(wid)
             .fetch_one(&state.pool)
             .await?;
-        if ["pending_approval", "approved"].contains(&work.status.as_str()) {
+        if ["pending_approval", "approved"].contains(&collection.status.as_str()) {
             // Auto-reset to draft
-            sqlx::query("UPDATE works SET status = 'draft' WHERE id = ?")
+            sqlx::query("UPDATE collections SET status = 'draft' WHERE id = ?")
                 .bind(wid).execute(&state.pool).await?;
             sqlx::query(
                 "UPDATE participants SET approved_at = NULL
-                 WHERE allocation_id IN (SELECT id FROM allocations WHERE work_id = ?) AND status NOT IN ('rejected', 'kicked')"
+                 WHERE allocation_id IN (SELECT id FROM allocations WHERE collection_id = ?) AND status NOT IN ('rejected', 'kicked')"
             ).bind(wid).execute(&state.pool).await?;
-        } else if work.status != "draft" {
-            return Err(AppError::BadRequest("Can only edit draft works".into()));
+        } else if collection.status != "draft" {
+            return Err(AppError::BadRequest("Can only edit draft collections".into()));
         }
     } else if project.status != "draft" {
         return Err(AppError::BadRequest("Can only edit drafts".into()));

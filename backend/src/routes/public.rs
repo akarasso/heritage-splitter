@@ -1,12 +1,12 @@
 use axum::{extract::{State, Path, Query}, Json};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{Project, Participant, Nft, Allocation, Work};
+use crate::models::{Project, Participant, Nft, Allocation, Collection, Showroom, ShowroomListing};
 use crate::services::blockchain;
 use crate::AppState;
 
@@ -140,10 +140,12 @@ pub async fn list_public_projects(
     State(state): State<AppState>,
     Query(params): Query<ProjectListQuery>,
 ) -> AppResult<Json<Vec<PublicProject>>> {
+    // Only expose projects with safe public statuses
+    const PUBLIC_STATUSES: &[&str] = &["active", "approved", "closed"];
+
     let projects: Vec<Project> = match &params.status {
         Some(status) => {
-            const VALID_PROJECT_STATUSES: &[&str] = &["draft", "active", "pending_approval", "approved", "closed"];
-            if !VALID_PROJECT_STATUSES.contains(&status.as_str()) {
+            if !PUBLIC_STATUSES.contains(&status.as_str()) {
                 return Err(AppError::BadRequest("Invalid project status filter".into()));
             }
             sqlx::query_as(
@@ -155,7 +157,7 @@ pub async fn list_public_projects(
         }
         None => {
             sqlx::query_as(
-                "SELECT * FROM projects ORDER BY created_at DESC LIMIT 100"
+                "SELECT * FROM projects WHERE status IN ('active', 'approved', 'closed') ORDER BY created_at DESC LIMIT 100"
             )
             .fetch_all(&state.pool)
             .await?
@@ -174,9 +176,9 @@ pub async fn verify_nft(
     State(state): State<AppState>,
     Path((contract, token_id)): Path<(String, i64)>,
 ) -> AppResult<Json<VerifyResponse>> {
-    // Look up by work contract address (works hold the deployed contracts, not projects)
-    let work: Work = sqlx::query_as(
-        "SELECT * FROM works WHERE contract_nft_address = ?"
+    // Look up by collection contract address (collections hold the deployed contracts, not projects)
+    let collection: Collection = sqlx::query_as(
+        "SELECT * FROM collections WHERE contract_nft_address = ?"
     )
     .bind(&contract)
     .fetch_optional(&state.pool)
@@ -186,14 +188,14 @@ pub async fn verify_nft(
     let project: Project = sqlx::query_as(
         "SELECT * FROM projects WHERE id = ?"
     )
-    .bind(&work.project_id)
+    .bind(&collection.project_id)
     .fetch_one(&state.pool)
     .await?;
 
     let nft: Nft = sqlx::query_as(
-        "SELECT * FROM nfts WHERE work_id = ? AND token_id = ?"
+        "SELECT * FROM nfts WHERE collection_id = ? AND token_id = ?"
     )
-    .bind(&work.id)
+    .bind(&collection.id)
     .bind(token_id)
     .fetch_optional(&state.pool)
     .await?
@@ -215,7 +217,9 @@ pub async fn get_public_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<PublicProject>> {
-    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = ?")
+    let project: Project = sqlx::query_as(
+        "SELECT * FROM projects WHERE id = ? AND status IN ('active', 'approved', 'closed')"
+    )
         .bind(&id)
         .fetch_optional(&state.pool)
         .await?
@@ -250,10 +254,10 @@ pub struct PublicCollectionNft {
 pub struct PublicCollection {
     pub name: String,
     pub description: String,
-    pub work_type: String,
+    pub collection_type: String,
     pub contract_nft_address: Option<String>,
     pub contract_splitter_address: Option<String>,
-    pub contract_vault_address: Option<String>,
+    pub contract_market_address: Option<String>,
     pub public_slug: Option<String>,
     pub nfts: Vec<PublicCollectionNft>,
     pub total_nfts: usize,
@@ -265,8 +269,8 @@ pub async fn get_public_collection(
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> AppResult<Json<PublicCollection>> {
-    let work: Work = sqlx::query_as(
-        "SELECT * FROM works WHERE public_slug = ? AND is_public = 1"
+    let collection: Collection = sqlx::query_as(
+        "SELECT * FROM collections WHERE public_slug = ? AND is_public = 1"
     )
     .bind(&slug)
     .fetch_optional(&state.pool)
@@ -275,17 +279,17 @@ pub async fn get_public_collection(
 
     // Minted NFTs
     let nfts: Vec<Nft> = sqlx::query_as(
-        "SELECT * FROM nfts WHERE work_id = ? ORDER BY token_id LIMIT 1000"
+        "SELECT * FROM nfts WHERE collection_id = ? ORDER BY token_id LIMIT 1000"
     )
-    .bind(&work.id)
+    .bind(&collection.id)
     .fetch_all(&state.pool)
     .await?;
 
     // Draft NFTs (to know total collection size)
     let draft_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM draft_nfts WHERE work_id = ?"
+        "SELECT COUNT(*) FROM draft_nfts WHERE collection_id = ?"
     )
-    .bind(&work.id)
+    .bind(&collection.id)
     .fetch_one(&state.pool)
     .await?;
 
@@ -306,10 +310,10 @@ pub async fn get_public_collection(
         "SELECT p.wallet_address, a.role, a.label, p.shares_bps
          FROM participants p
          INNER JOIN allocations a ON p.allocation_id = a.id
-         WHERE a.work_id = ? AND p.status NOT IN ('rejected', 'kicked')
+         WHERE a.collection_id = ? AND p.status NOT IN ('rejected', 'kicked')
          ORDER BY a.sort_order LIMIT 500"
     )
-    .bind(&work.id)
+    .bind(&collection.id)
     .fetch_all(&state.pool)
     .await?;
 
@@ -318,13 +322,13 @@ pub async fn get_public_collection(
     }).collect();
 
     Ok(Json(PublicCollection {
-        name: work.name,
-        description: work.description,
-        work_type: work.work_type,
-        contract_nft_address: work.contract_nft_address,
-        contract_splitter_address: work.contract_splitter_address,
-        contract_vault_address: work.contract_vault_address,
-        public_slug: work.public_slug,
+        name: collection.name,
+        description: collection.description,
+        collection_type: collection.collection_type,
+        contract_nft_address: collection.contract_nft_address,
+        contract_splitter_address: collection.contract_splitter_address,
+        contract_market_address: collection.contract_market_address,
+        public_slug: collection.public_slug,
         nfts: collection_nfts,
         total_nfts,
         beneficiaries,
@@ -356,9 +360,9 @@ pub async fn nft_metadata(
     State(state): State<AppState>,
     Path((contract, token_id)): Path<(String, i64)>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Find the work by NFT contract address
-    let work: Work = sqlx::query_as(
-        "SELECT * FROM works WHERE contract_nft_address = ?"
+    // Find the collection by NFT contract address
+    let collection: Collection = sqlx::query_as(
+        "SELECT * FROM collections WHERE contract_nft_address = ?"
     )
     .bind(&contract)
     .fetch_optional(&state.pool)
@@ -367,9 +371,9 @@ pub async fn nft_metadata(
 
     // Find the NFT
     let nft: Nft = sqlx::query_as(
-        "SELECT * FROM nfts WHERE work_id = ? AND token_id = ?"
+        "SELECT * FROM nfts WHERE collection_id = ? AND token_id = ?"
     )
-    .bind(&work.id)
+    .bind(&collection.id)
     .bind(token_id)
     .fetch_optional(&state.pool)
     .await?
@@ -381,8 +385,8 @@ pub async fn nft_metadata(
     let base_url = state.config.base_url.trim_end_matches('/');
     let external_url = format!("{}/verify/{}/{}", base_url, contract, token_id);
 
-    // If image is a data URI, serve it via our image endpoint instead
-    let image = if nft.image_url.starts_with("data:") {
+    // If image is stored internally (MinIO key or data URI), serve via our image proxy endpoint
+    let image = if !nft.image_url.starts_with("http") {
         format!("{}/api/images/nft/{}", base_url, nft.id)
     } else {
         nft.image_url
@@ -418,7 +422,24 @@ pub async fn nft_image(
     .await?
     .ok_or_else(|| AppError::NotFound("NFT not found".into()))?;
 
-    // Parse data URI: data:image/png;base64,AAAA...
+    // MinIO stored image (raw key or legacy minio:// prefix)
+    let key = image_url.strip_prefix("minio://").unwrap_or(&image_url);
+    if !key.starts_with("data:") {
+        let storage = state.storage.as_ref()
+            .ok_or_else(|| AppError::Internal("Image storage not configured".into()))?;
+        let (bytes, content_type) = storage.get(key).await
+            .map_err(|e| AppError::Internal(format!("Storage get failed: {}", e)))?;
+        return Ok((
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable".into()),
+            ],
+            bytes,
+        ));
+    }
+
+    // Legacy: parse data URI: data:image/png;base64,AAAA...
     let data_uri = image_url.strip_prefix("data:")
         .ok_or_else(|| AppError::NotFound("No embedded image".into()))?;
 
@@ -444,26 +465,39 @@ pub async fn nft_image(
     ))
 }
 
-// GET /api/public/works/{workId}/history — on-chain event history for a collection
+// GET /api/public/collections/{collectionId}/history — on-chain event history for a collection
 // Uses DB cache + incremental scan from last cursor position.
-pub async fn work_history(
+pub async fn collection_history(
+    headers: HeaderMap,
     State(state): State<AppState>,
-    Path(work_id): Path<String>,
+    Path(collection_id): Path<String>,
 ) -> AppResult<Json<blockchain::TokenHistory>> {
-    let work: Work = sqlx::query_as("SELECT * FROM works WHERE id = ?")
-        .bind(&work_id)
+    // Rate limit by IP: 10 requests per minute
+    let ip = headers.get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').last())
+        .unwrap_or("anon")
+        .trim()
+        .to_string();
+    let rate_key = format!("history:{}", ip);
+    if !state.rate_limiter.check(&rate_key, 10, std::time::Duration::from_secs(60)) {
+        return Err(AppError::TooManyRequests("Rate limit exceeded. Try again later.".into()));
+    }
+
+    let collection: Collection = sqlx::query_as("SELECT * FROM collections WHERE id = ?")
+        .bind(&collection_id)
         .fetch_optional(&state.pool)
         .await?
-        .ok_or_else(|| AppError::NotFound("Work not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("Collection not found".into()))?;
 
-    let nft_address = work.contract_nft_address.as_deref()
+    let nft_address = collection.contract_nft_address.as_deref()
         .ok_or_else(|| AppError::BadRequest("Collection not deployed yet".into()))?;
-    let vault_address = work.contract_vault_address.as_deref()
-        .ok_or_else(|| AppError::BadRequest("No vault address".into()))?;
-    let splitter_address = work.contract_splitter_address.as_deref()
+    let market_address = collection.contract_market_address.as_deref()
+        .ok_or_else(|| AppError::BadRequest("No market address".into()))?;
+    let splitter_address = collection.contract_splitter_address.as_deref()
         .ok_or_else(|| AppError::BadRequest("No splitter address".into()))?;
 
-    let deploy_block = match work.deploy_block_number {
+    let deploy_block = match collection.deploy_block_number {
         Some(b) => b as u64,
         None => {
             // Legacy deploy without block tracking — no history available
@@ -474,11 +508,11 @@ pub async fn work_history(
         }
     };
 
-    // Read cursor: last scanned block for this work
+    // Read cursor: last scanned block for this collection
     let cursor: Option<i64> = sqlx::query_scalar(
-        "SELECT last_scanned_block FROM work_events_cursor WHERE work_id = ?"
+        "SELECT last_scanned_block FROM collection_events_cursor WHERE collection_id = ?"
     )
-    .bind(&work_id)
+    .bind(&collection_id)
     .fetch_optional(&state.pool)
     .await?;
 
@@ -492,7 +526,7 @@ pub async fn work_history(
     let scan = blockchain::fetch_collection_events(
         &state.config.avalanche_rpc_url,
         nft_address,
-        vault_address,
+        market_address,
         splitter_address,
         scan_from,
     ).await.map_err(|e| AppError::Internal(format!("Failed to fetch on-chain history: {}", e)))?;
@@ -503,19 +537,19 @@ pub async fn work_history(
             "from": t.from, "to": t.to, "token_id": t.token_id
         });
         let _ = sqlx::query(
-            "INSERT OR IGNORE INTO work_events (work_id, event_type, block_number, tx_hash, data) VALUES (?, 'transfer', ?, ?, ?)"
+            "INSERT OR IGNORE INTO collection_events (collection_id, event_type, block_number, tx_hash, data) VALUES (?, 'transfer', ?, ?, ?)"
         )
-        .bind(&work_id).bind(t.block_number as i64).bind(&t.tx_hash).bind(data.to_string())
+        .bind(&collection_id).bind(t.block_number as i64).bind(&t.tx_hash).bind(data.to_string())
         .execute(&state.pool).await;
     }
     for p in &scan.purchases {
         let data = serde_json::json!({
-            "token_id": p.token_id, "buyer": p.buyer, "price_wei": p.price_wei
+            "listing_id": p.listing_id, "buyer": p.buyer, "price_wei": p.price_wei
         });
         let _ = sqlx::query(
-            "INSERT OR IGNORE INTO work_events (work_id, event_type, block_number, tx_hash, data) VALUES (?, 'purchase', ?, ?, ?)"
+            "INSERT OR IGNORE INTO collection_events (collection_id, event_type, block_number, tx_hash, data) VALUES (?, 'purchase', ?, ?, ?)"
         )
-        .bind(&work_id).bind(p.block_number as i64).bind(&p.tx_hash).bind(data.to_string())
+        .bind(&collection_id).bind(p.block_number as i64).bind(&p.tx_hash).bind(data.to_string())
         .execute(&state.pool).await;
     }
     for p in &scan.payments {
@@ -523,25 +557,25 @@ pub async fn work_history(
             "beneficiary": p.beneficiary, "amount_wei": p.amount_wei
         });
         let _ = sqlx::query(
-            "INSERT OR IGNORE INTO work_events (work_id, event_type, block_number, tx_hash, data) VALUES (?, 'payment', ?, ?, ?)"
+            "INSERT OR IGNORE INTO collection_events (collection_id, event_type, block_number, tx_hash, data) VALUES (?, 'payment', ?, ?, ?)"
         )
-        .bind(&work_id).bind(p.block_number as i64).bind(&p.tx_hash).bind(data.to_string())
+        .bind(&collection_id).bind(p.block_number as i64).bind(&p.tx_hash).bind(data.to_string())
         .execute(&state.pool).await;
     }
 
     // Update cursor
     sqlx::query(
-        "INSERT INTO work_events_cursor (work_id, last_scanned_block) VALUES (?, ?)
-         ON CONFLICT(work_id) DO UPDATE SET last_scanned_block = excluded.last_scanned_block"
+        "INSERT INTO collection_events_cursor (collection_id, last_scanned_block) VALUES (?, ?)
+         ON CONFLICT(collection_id) DO UPDATE SET last_scanned_block = excluded.last_scanned_block"
     )
-    .bind(&work_id).bind(scan.last_scanned_block as i64)
+    .bind(&collection_id).bind(scan.last_scanned_block as i64)
     .execute(&state.pool).await?;
 
     // Read full history from cache
     let rows: Vec<(String, i64, String, String)> = sqlx::query_as(
-        "SELECT event_type, block_number, tx_hash, data FROM work_events WHERE work_id = ? ORDER BY block_number LIMIT 5000"
+        "SELECT event_type, block_number, tx_hash, data FROM collection_events WHERE collection_id = ? ORDER BY block_number LIMIT 5000"
     )
-    .bind(&work_id)
+    .bind(&collection_id)
     .fetch_all(&state.pool)
     .await?;
 
@@ -564,7 +598,7 @@ pub async fn work_history(
             }
             "purchase" => {
                 purchases.push(blockchain::PurchaseEvent {
-                    token_id: obj["token_id"].as_u64().unwrap_or(0),
+                    listing_id: obj["listing_id"].as_u64().unwrap_or(0),
                     buyer: obj["buyer"].as_str().unwrap_or_default().to_string(),
                     price_wei: obj["price_wei"].as_str().unwrap_or("0").to_string(),
                     block_number: block_number as u64,
@@ -592,6 +626,69 @@ pub async fn work_history(
         purchases,
         payments,
         total_revenue_wei: total_revenue.to_string(),
+    }))
+}
+
+// ── Public showroom (by slug, no auth) ──────────────────────────────
+
+#[derive(Serialize)]
+pub struct PublicShowroomListing {
+    pub nft_contract: String,
+    pub token_id: i64,
+    pub base_price: String,
+    pub margin: String,
+    pub title: String,
+    pub image_url: String,
+    pub artist_name: String,
+    pub collection_name: String,
+}
+
+#[derive(Serialize)]
+pub struct PublicShowroom {
+    pub name: String,
+    pub description: String,
+    pub contract_address: Option<String>,
+    pub listings: Vec<PublicShowroomListing>,
+}
+
+// GET /api/public/showrooms/{slug}
+pub async fn get_public_showroom(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> AppResult<Json<PublicShowroom>> {
+    let showroom: Showroom = sqlx::query_as(
+        "SELECT * FROM showrooms WHERE public_slug = ? AND is_public = 1"
+    )
+    .bind(&slug)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Showroom not found".into()))?;
+
+    let listings: Vec<ShowroomListing> = sqlx::query_as(
+        "SELECT * FROM showroom_listings WHERE showroom_id = ? AND status != 'hidden' ORDER BY created_at"
+    )
+    .bind(&showroom.id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let public_listings: Vec<PublicShowroomListing> = listings.into_iter().map(|l| {
+        PublicShowroomListing {
+            nft_contract: l.nft_contract,
+            token_id: l.token_id,
+            base_price: l.base_price,
+            margin: l.margin,
+            title: l.title,
+            image_url: l.image_url,
+            artist_name: l.artist_name,
+            collection_name: l.collection_name,
+        }
+    }).collect();
+
+    Ok(Json(PublicShowroom {
+        name: showroom.name,
+        description: showroom.description,
+        contract_address: showroom.contract_address,
+        listings: public_listings,
     }))
 }
 

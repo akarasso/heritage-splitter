@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -21,6 +21,26 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // CSRF protection: require X-Requested-With header on state-changing requests
+    // when authenticated via cookie (not Bearer token)
+    let is_cookie_auth = request
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .map(|cookies| cookies.contains("heritage_session="))
+        .unwrap_or(false);
+    let is_state_changing = !matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS);
+
+    if is_cookie_auth && is_state_changing {
+        let has_csrf_header = request
+            .headers()
+            .get("x-requested-with")
+            .is_some();
+        if !has_csrf_header {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     // Try cookie first, then fall back to Authorization header
     let token = request
         .headers()
@@ -47,7 +67,7 @@ pub async fn auth_middleware(
     let token_data = decode::<Claims>(
         &token,
         &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        &Validation::default(),
+        &Validation::new(Algorithm::HS256),
     )
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
