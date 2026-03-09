@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anvil
+  namespace: heritage-e2e
+  labels:
+    app: anvil
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anvil
+  template:
+    metadata:
+      labels:
+        app: anvil
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: anvil
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+          image: ghcr.io/foundry-rs/foundry:nightly-2026-03-01
+          command: ["anvil"]
+          args: ["--host", "0.0.0.0", "--hardfork", "cancun"]
+          ports:
+            - containerPort: 8545
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 8545
+            periodSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            tcpSocket:
+              port: 8545
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anvil
+  namespace: heritage-e2e
+spec:
+  selector:
+    app: anvil
+  ports:
+    - port: 8545
+      targetPort: 8545

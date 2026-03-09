@@ -1,0 +1,65 @@
+# NetworkPolicy: backend accepts ingress only from frontend on port 3001
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-ingress
+  namespace: heritage-e2e
+spec:
+  podSelector:
+    matchLabels:
+      app: heritage-backend-e2e
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: heritage-frontend-e2e
+      ports:
+        - port: 3001
+          protocol: TCP
+---
+# NetworkPolicy: backend egress — DNS, Anvil, MinIO, HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-egress
+  namespace: heritage-e2e
+spec:
+  podSelector:
+    matchLabels:
+      app: heritage-backend-e2e
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Anvil RPC
+    - to:
+        - podSelector:
+            matchLabels:
+              app: anvil
+      ports:
+        - port: 8545
+          protocol: TCP
+    # MinIO
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
+    # External HTTPS
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP

@@ -1,0 +1,89 @@
+# Heritage Splitter — E2E Test Environment
+#
+# Usage:
+#   tilt ci -f Tiltfile.e2e          # CI: deploy, test, exit
+#   tilt up -f Tiltfile.e2e          # Interactive: dashboard + manual trigger
+#   tilt down -f Tiltfile.e2e        # Cleanup
+#
+# Architecture:
+#   K8s: Anvil (blockchain) → Backend (API) → Frontend (SPA)
+#   Local: deploy-contracts.sh → Playwright tests (browser + MetaMask)
+#
+# Services:
+#   - Anvil     → localhost:18545  (local blockchain)
+#   - Backend   → localhost:13001  (API)
+#   - Frontend  → localhost:8877   (Caddy + SPA)
+
+# ─── Namespace ────────────────────────────────────────────
+k8s_yaml('k8s/e2e/namespace.yaml')
+
+# ─── Anvil (local blockchain) ────────────────────────────
+k8s_yaml('k8s/e2e/anvil.yaml')
+k8s_resource(
+    'anvil',
+    port_forwards=['18545:8545'],
+    labels=['infra'],
+)
+
+# ─── MinIO (object storage) ─────────────────────────────
+k8s_yaml('k8s/e2e/minio.yaml')
+k8s_resource(
+    'minio',
+    labels=['infra'],
+)
+
+# ─── Deploy Contracts on Anvil ────────────────────────────
+# Runs forge script locally, patches backend K8s env with contract addresses
+local_resource(
+    'contract-deploy',
+    cmd='./e2e/deploy-contracts.sh',
+    resource_deps=['anvil'],
+    labels=['infra'],
+)
+
+# ─── Backend ─────────────────────────────────────────────
+docker_build(
+    'heritage-backend-e2e',
+    './backend',
+    dockerfile='./backend/Dockerfile',
+)
+
+k8s_yaml('k8s/e2e/backend.yaml')
+k8s_resource(
+    'backend',
+    port_forwards=['13001:3001'],
+    labels=['backend'],
+    resource_deps=['anvil', 'contract-deploy', 'minio'],
+)
+
+# ─── Frontend ────────────────────────────────────────────
+docker_build(
+    'heritage-frontend-e2e',
+    './frontend',
+    dockerfile='./frontend/Dockerfile.e2e',
+)
+
+k8s_yaml('k8s/e2e/frontend.yaml')
+k8s_resource(
+    'frontend',
+    port_forwards=['8877:3000'],
+    labels=['frontend'],
+    resource_deps=['backend'],
+)
+
+# ─── Playwright E2E Tests ────────────────────────────────
+# Runs locally with real browser + MetaMask extension
+# Trigger manually from Tilt dashboard (auto_init=False)
+local_resource(
+    'e2e-tests',
+    cmd=' && '.join([
+        'cd e2e/playwright',
+        'E2E_ANVIL_RPC=http://localhost:18545 '
+        'E2E_API_URL=http://localhost:13001/api '
+        'E2E_FRONTEND_URL=http://localhost:8877 '
+        'npx playwright test',
+    ]),
+    resource_deps=['frontend', 'backend', 'anvil', 'contract-deploy'],
+    labels=['tests'],
+    auto_init=False,
+)

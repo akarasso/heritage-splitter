@@ -2,19 +2,20 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
+  namespace: heritage-e2e
   labels:
-    app: heritage-backend
+    app: heritage-backend-e2e
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: heritage-backend
+      app: heritage-backend-e2e
   template:
     metadata:
       labels:
-        app: heritage-backend
+        app: heritage-backend-e2e
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -26,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: heritage-backend
+          image: heritage-backend-e2e
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -39,12 +40,11 @@ spec:
             - name: DATABASE_URL
               value: "sqlite:///data/heritage.db?mode=rwc"
             - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: jwt-secret
+              value: "e2e-test-secret"
             - name: AVALANCHE_RPC_URL
-              value: "https://api.avax-test.network/ext/bc/C/rpc"
+              value: "http://anvil:8545"
+            - name: CHAIN_ID
+              value: "31337"
             - name: HOST
               value: "0.0.0.0"
             - name: PORT
@@ -52,48 +52,29 @@ spec:
             - name: DOCUMENT_STORAGE_PATH
               value: "/documents"
             - name: CERTIFIER_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: certifier-private-key
-            - name: DOC_REGISTRY_ADDRESS
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: doc-registry-address
-                  optional: true
+              value: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+            - name: CERTIFIER_ADDRESS
+              value: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
             - name: FACTORY_ADDRESS
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: factory-address
-                  optional: true
-            - name: REGISTRY_ADDRESS
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: registry-address
-                  optional: true
+              value: ""
             - name: MARKET_ADDRESS
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: market-address
-                  optional: true
+              value: ""
+            - name: DOC_REGISTRY_ADDRESS
+              value: ""
+            - name: REGISTRY_ADDRESS
+              value: ""
+            - name: RATE_LIMIT_PER_MIN
+              value: "600"
+            - name: WS_RATE_LIMIT_PER_MIN
+              value: "120"
             - name: MINIO_ENDPOINT
               value: "http://minio:9000"
             - name: MINIO_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: minio-access-key
+              value: "minioadmin"
             - name: MINIO_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: heritage-secrets
-                  key: minio-secret-key
+              value: "minioadmin"
             - name: MINIO_BUCKET
-              value: "heritage"
+              value: "heritage-e2e"
           volumeMounts:
             - name: data
               mountPath: /data
@@ -124,19 +105,18 @@ spec:
             periodSeconds: 15
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: heritage-db
+          emptyDir: {}
         - name: documents
-          persistentVolumeClaim:
-            claimName: heritage-documents
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: backend
+  namespace: heritage-e2e
 spec:
   selector:
-    app: heritage-backend
+    app: heritage-backend-e2e
   ports:
     - port: 3001
       targetPort: 3001

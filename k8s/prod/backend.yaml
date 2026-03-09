@@ -19,11 +19,27 @@ spec:
         app.kubernetes.io/name: backend
         app.kubernetes.io/part-of: heritage-splitter
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ovh-registry
       containers:
         - name: backend
-          image: 97ksui70.c1.gra9.container-registry.ovh.net/heritage-splitter/heritage-backend:latest
+          # I8: Replace :latest with git short SHA at deploy time:
+          #   sed -i "s/IMAGE_TAG/$(git rev-parse --short HEAD)/" k8s/prod/backend.yaml
+          image: 97ksui70.c1.gra9.container-registry.ovh.net/heritage-splitter/heritage-backend:IMAGE_TAG
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
           imagePullPolicy: Always
           ports:
             - containerPort: 3001
@@ -59,16 +75,20 @@ spec:
                 secretKeyRef:
                   name: heritage-secrets
                   key: certifier-private-key
-            - name: ANTHROPIC_API_KEY
+            - name: MINIO_ENDPOINT
+              value: "http://minio:9000"
+            - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: heritage-secrets
-                  key: anthropic-api-key
-            - name: OPENAI_API_KEY
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: heritage-secrets
-                  key: openai-api-key
+                  key: minio-secret-key
+            - name: MINIO_BUCKET
+              value: "heritage"
           volumeMounts:
             - name: db-storage
               mountPath: /data

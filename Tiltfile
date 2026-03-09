@@ -31,12 +31,18 @@ stringData:
   doc-registry-address: "%s"
   factory-address: "%s"
   registry-address: "%s"
+  market-address: "%s"
+  minio-access-key: "%s"
+  minio-secret-key: "%s"
 """ % (
     _env.get('JWT_SECRET', 'dev-secret'),
     _env.get('CERTIFIER_PRIVATE_KEY', ''),
     _env.get('DOC_REGISTRY_ADDRESS', ''),
     _env.get('FACTORY_ADDRESS', ''),
     _env.get('REGISTRY_ADDRESS', ''),
+    _env.get('MARKET_ADDRESS', ''),
+    _env.get('MINIO_ACCESS_KEY', 'minioadmin'),
+    _env.get('MINIO_SECRET_KEY', 'minioadmin'),
 )))
 
 # ─── Backend ─────────────────────────────────────────────────────────
@@ -56,6 +62,15 @@ k8s_resource(
     resource_deps=[],
 )
 
+# ─── MinIO (object storage) ──────────────────────────────────────────
+k8s_yaml('k8s/minio.yaml')
+k8s_resource(
+    'minio',
+    port_forwards=['9000:9000', '9001:9001'],
+    labels=['storage'],
+    resource_deps=[],
+)
+
 # ─── Frontend ────────────────────────────────────────────────────────
 docker_build(
     'heritage-frontend',
@@ -68,6 +83,7 @@ k8s_yaml('k8s/frontend.yaml')
 k8s_yaml('k8s/ingress.yaml')
 k8s_resource(
     'frontend',
+    port_forwards=['8080:3000'],
     labels=['frontend'],
     resource_deps=['backend'],
 )

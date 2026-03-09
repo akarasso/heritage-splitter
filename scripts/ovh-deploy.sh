@@ -127,7 +127,7 @@ fi
 
 # ── Build & push images ───────────────────────────────────────────
 if $DO_BUILD; then
-  TAG="${TAG:-latest}"
+  TAG="${TAG:-$(git -C "$ROOT" rev-parse --short HEAD)}"
   BACKEND_IMG="$REGISTRY/$PROJECT/heritage-backend:$TAG"
   FRONTEND_IMG="$REGISTRY/$PROJECT/heritage-frontend:$TAG"
 
@@ -149,15 +149,22 @@ if $DO_BUILD; then
 fi
 
 # ── Deploy ─────────────────────────────────────────────────────────
-info "Deploying to namespace '$NS'..."
+IMAGE_TAG="${TAG:-$(git -C "$ROOT" rev-parse --short HEAD)}"
+info "Deploying to namespace '$NS' with IMAGE_TAG=$IMAGE_TAG..."
 
 kubectl apply -f "$ROOT/k8s/prod/namespace.yaml"
-kubectl apply -f "$ROOT/k8s/prod/backend.yaml"
-kubectl apply -f "$ROOT/k8s/prod/frontend.yaml"
+kubectl apply -f "$ROOT/k8s/prod/networkpolicy.yaml"
 
-info "Restarting pods to pull latest images..."
-kubectl rollout restart deployment/backend -n "$NS"
-kubectl rollout restart deployment/frontend -n "$NS"
+# Stamp IMAGE_TAG into manifests (work on temp copies)
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+for f in backend.yaml frontend.yaml; do
+  sed "s/IMAGE_TAG/$IMAGE_TAG/g" "$ROOT/k8s/prod/$f" > "$TMP_DIR/$f"
+done
+kubectl apply -f "$TMP_DIR/backend.yaml"
+kubectl apply -f "$TMP_DIR/frontend.yaml"
+
+info "Waiting for rollout..."
 
 info "Waiting for rollout..."
 kubectl rollout status deployment/backend -n "$NS" --timeout=120s

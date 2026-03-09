@@ -17,15 +17,36 @@ spec:
         app.kubernetes.io/name: frontend
         app.kubernetes.io/part-of: heritage-splitter
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ovh-registry
       containers:
         - name: frontend
-          image: 97ksui70.c1.gra9.container-registry.ovh.net/heritage-splitter/heritage-frontend:latest
+          # I8: Replace :latest with git short SHA at deploy time:
+          #   sed -i "s/IMAGE_TAG/$(git rev-parse --short HEAD)/" k8s/prod/frontend.yaml
+          image: 97ksui70.c1.gra9.container-registry.ovh.net/heritage-splitter/heritage-frontend:IMAGE_TAG
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /config/caddy
+            - name: caddy-data
+              mountPath: /data/caddy
           readinessProbe:
             httpGet:
               path: /health
@@ -43,6 +64,11 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+      volumes:
+        - name: caddy-config
+          emptyDir: {}
+        - name: caddy-data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
