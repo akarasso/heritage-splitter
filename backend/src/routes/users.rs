@@ -83,8 +83,12 @@ pub async fn update_me(
         if avatar.len() > 10_000 {
             return Err(AppError::BadRequest("Avatar URL too long (max 10KB)".into()));
         }
-        if !avatar.is_empty() && !avatar.starts_with("data:image/") && !avatar.starts_with("https://") {
-            return Err(AppError::BadRequest("Avatar must be a data:image/ URI or https:// URL".into()));
+        if !avatar.is_empty()
+            && !avatar.starts_with("data:image/")
+            && !avatar.starts_with("https://")
+            && !avatar.starts_with("avatar/")
+        {
+            return Err(AppError::BadRequest("Avatar must be a data:image/ URI, https:// URL, or storage key".into()));
         }
         sqlx::query("UPDATE users SET avatar_url = ? WHERE id = ?")
             .bind(avatar).bind(&claims.user_id).execute(&state.pool).await?;
