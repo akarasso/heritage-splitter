@@ -2,14 +2,14 @@ import { Show, For, createResource, createSignal } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { useProject } from "~/lib/project-context";
 import { api } from "~/lib/api-client";
-import type { PublicUser, Work } from "~/lib/api-client";
+import type { PublicUser, Collection } from "~/lib/api-client";
 import { useWebSocket } from "~/hooks/createWebSocket";
 import { sanitizeImageUrl } from "~/lib/utils";
 
 export default function ProjectOverview() {
   const params = useParams();
   const navigate = useNavigate();
-  const { project, refetch, user, isCreator, isMember, works, refetchWorks } = useProject();
+  const { project, refetch, user, isCreator, isMember, collections, refetchCollections } = useProject();
 
   const [usersMap] = createResource(async () => {
     try {
@@ -221,7 +221,7 @@ export default function ProjectOverview() {
         <button
           class="w-full p-5 rounded-xl text-left transition-all hover:opacity-90"
           style={{ background: "var(--noir-light)", border: "2px solid var(--border)" }}
-          onClick={() => navigate(`/projects/${params.id}/works/new?type=nft_collection`)}
+          onClick={() => navigate(`/projects/${params.id}/collections/new?type=nft_collection`)}
         >
           <div class="flex items-center gap-3 mb-2">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(139,92,246,0.15)" }}>

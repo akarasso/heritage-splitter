@@ -16,7 +16,7 @@ export default function Landing() {
       const result = await connect();
       navigate(result?.user_exists ? "/dashboard" : "/onboarding");
     } catch (e) {
-      console.error("Connection failed:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Connection failed:", e instanceof Error ? e.message : "Unknown error");
     }
   }
 

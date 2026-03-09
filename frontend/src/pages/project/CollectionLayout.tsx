@@ -4,19 +4,19 @@ import { useParams, useLocation, A } from "@solidjs/router";
 import { api } from "~/lib/api-client";
 import { useAuth } from "~/hooks/createAuth";
 import { useProject } from "~/lib/project-context";
-import { WorkContext } from "~/lib/work-context";
+import { CollectionContext } from "~/lib/collection-context";
 import { useWebSocket } from "~/hooks/createWebSocket";
 import { showConfirm, showAlert } from "~/lib/modal-store";
 
-export default function WorkLayout(props: ParentProps) {
+export default function CollectionLayout(props: ParentProps) {
   const params = useParams();
   const location = useLocation();
   const { user } = useAuth();
   const { project } = useProject();
 
-  const [work, { refetch }] = createResource(
-    () => params.workId,
-    (id) => api.getWork(id)
+  const [collection, { refetch }] = createResource(
+    () => params.collectionId,
+    (id) => api.getCollection(id)
   );
 
   const [submitting, setSubmitting] = createSignal(false);
@@ -28,11 +28,11 @@ export default function WorkLayout(props: ParentProps) {
   const isCreator = () => project()?.creator_id === user()?.id;
   const projectId = () => params.id || "";
 
-  // Real-time updates via WebSocket — re-register when workId changes
+  // Real-time updates via WebSocket — re-register when collectionId changes
   createEffect(() => {
-    const currentWorkId = params.workId; // track
+    const currentCollectionId = params.collectionId; // track
     const { cleanup } = useWebSocket((msg) => {
-      const workEvents = [
+      const collectionEvents = [
         "work_approval_requested",
         "work_participant_approved",
         "work_all_approved",
@@ -40,9 +40,9 @@ export default function WorkLayout(props: ParentProps) {
         "invitation_accepted",
         "participant_approved",
       ];
-      if (workEvents.includes(msg.kind)) {
-        // Refetch if the event is for this work
-        if (msg.payload?.reference_id === currentWorkId || !msg.payload?.reference_id) {
+      if (collectionEvents.includes(msg.kind)) {
+        // Refetch if the event is for this collection
+        if (msg.payload?.reference_id === currentCollectionId || !msg.payload?.reference_id) {
           refetch();
         }
       }
@@ -50,7 +50,7 @@ export default function WorkLayout(props: ParentProps) {
     onCleanup(cleanup);
   });
 
-  const basePath = () => `/projects/${params.id}/works/${params.workId}`;
+  const basePath = () => `/projects/${params.id}/collections/${params.collectionId}`;
 
   const allTabs = [
     { label: "Overview", path: "" },
@@ -64,8 +64,8 @@ export default function WorkLayout(props: ParentProps) {
   ];
 
   const tabs = () => allTabs.filter(t => {
-    if (t.nftOnly && work()?.work_type !== "nft_collection") return false;
-    if (t.deployed && !work()?.contract_nft_address) return false;
+    if (t.nftOnly && collection()?.collection_type !== "nft_collection") return false;
+    if (t.deployed && !collection()?.contract_nft_address) return false;
     return true;
   });
 
@@ -86,7 +86,7 @@ export default function WorkLayout(props: ParentProps) {
       onConfirm: async () => {
         setSubmitting(true);
         try {
-          await api.submitWorkForApproval(work()!.id);
+          await api.submitCollectionForApproval(collection()!.id);
           refetch();
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -106,7 +106,7 @@ export default function WorkLayout(props: ParentProps) {
       onConfirm: async () => {
         setValidating(true);
         try {
-          await api.validateApproval(work()!.id);
+          await api.validateApproval(collection()!.id);
           refetch();
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -121,12 +121,12 @@ export default function WorkLayout(props: ParentProps) {
   function handleDeploy() {
     showConfirm({
       title: "Blockchain deployment",
-      message: "Deploy this work on the Avalanche blockchain? The server will deploy the smart contracts with your wallet as owner.",
+      message: "Deploy this collection on the Avalanche blockchain? The server will deploy the smart contracts with your wallet as owner.",
       confirmLabel: "Deploy",
       onConfirm: async () => {
         setDeploying(true);
         try {
-          await api.deployWork(work()!.id);
+          await api.deployCollection(collection()!.id);
           refetch();
         } catch (e) {
           const msg = e instanceof Error
@@ -148,7 +148,7 @@ export default function WorkLayout(props: ParentProps) {
       onConfirm: async () => {
         setSubmittingMint(true);
         try {
-          await api.submitForMintApproval(work()!.id);
+          await api.submitForMintApproval(collection()!.id);
           refetch();
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -161,9 +161,9 @@ export default function WorkLayout(props: ParentProps) {
   }
 
   async function handleMintAll() {
-    const w = work();
-    if (!w) return;
-    const drafts = w.draft_nfts || [];
+    const c = collection();
+    if (!c) return;
+    const drafts = c.draft_nfts || [];
     if (drafts.length === 0) return;
 
     showConfirm({
@@ -175,9 +175,9 @@ export default function WorkLayout(props: ParentProps) {
         const failedMints: { title: string; error: string }[] = [];
         for (const draft of drafts) {
           try {
-            await api.mintWorkNft(w.id, {
+            await api.mintCollectionNft(c.id, {
               title: draft.title,
-              metadata_uri: draft.metadata_uri || `ipfs://${draft.title.replace(/\s+/g, "-").toLowerCase()}`,
+              draft_nft_id: draft.id,
             });
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
@@ -244,7 +244,7 @@ export default function WorkLayout(props: ParentProps) {
 
   return (
     <Show
-      when={work()}
+      when={collection()}
       fallback={
         <div class="flex items-center gap-3 py-12">
           <div class="w-2 h-2 rounded-full animate-glow" style={{ background: "var(--accent)" }} />
@@ -356,9 +356,9 @@ export default function WorkLayout(props: ParentProps) {
           </nav>
 
           {/* Sub-page content */}
-          <WorkContext.Provider value={{ work, refetch, user, isCreator, projectId }}>
+          <CollectionContext.Provider value={{ collection, refetch, user, isCreator, projectId }}>
             {props.children}
-          </WorkContext.Provider>
+          </CollectionContext.Provider>
         </div>
       )}
     </Show>

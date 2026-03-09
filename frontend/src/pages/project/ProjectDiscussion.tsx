@@ -3,8 +3,9 @@ import { useProject } from "~/lib/project-context";
 import { api } from "~/lib/api-client";
 import type { ThreadDetail, MessageDetail, PublicUser } from "~/lib/api-client";
 import { formatDate, sanitizeImageUrl } from "~/lib/utils";
+import { showToast } from "~/components/ui/Toast";
 
-export default function ProjectDiscussion(props: Record<string, any> & { workId?: string }) {
+export default function ProjectDiscussion(props: Record<string, any> & { collectionId?: string }) {
   const { project, user, isCreator } = useProject();
   const [threads, setThreads] = createSignal<ThreadDetail[]>([]);
   const [activeThread, setActiveThread] = createSignal<ThreadDetail | null>(null);
@@ -62,10 +63,10 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
     const pid = projectId();
     if (!pid) return;
     try {
-      const t = await api.listThreads(pid, props.workId);
+      const t = await api.listThreads(pid, props.collectionId);
       setThreads(t);
     } catch (e) {
-      console.error("Failed to load threads:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Failed to load threads:", e instanceof Error ? e.message : "Unknown error");
     }
   }
 
@@ -78,7 +79,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       setMessages(msgs);
       scrollToBottom();
     } catch (e) {
-      console.error("Failed to load messages:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Failed to load messages:", e instanceof Error ? e.message : "Unknown error");
     }
   }
 
@@ -137,7 +138,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       const thread = await api.createThread(pid, {
         title: newTitle().trim(),
         content: resolveMentions(newContent().trim()),
-        work_id: props.workId,
+        collection_id: props.collectionId,
       });
       setShowNewThread(false);
       setNewTitle("");
@@ -145,7 +146,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       await loadThreads();
       openThread(thread);
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     } finally {
       setCreatingThread(false);
     }
@@ -162,7 +163,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       setInput("");
       scrollToBottom();
     } catch (e) {
-      console.error("Failed to send message:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Failed to send message:", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSending(false);
     }
@@ -285,7 +286,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       setConclusion("");
       await loadThreads();
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     }
   }
 
@@ -297,7 +298,7 @@ export default function ProjectDiscussion(props: Record<string, any> & { workId?
       setActiveThread(updated);
       await loadThreads();
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     }
   }
 

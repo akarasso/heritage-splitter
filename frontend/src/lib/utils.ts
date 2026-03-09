@@ -107,15 +107,19 @@ export function generateAvatar(name: string): string {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
-/** Validate image URL: only allow whitelisted data:image types, https://, or empty string. */
+/** Validate image URL: only allow MinIO storage keys, safe data:image/ URIs (png/jpeg/gif/webp), or /api/ paths.
+ *  Storage keys (e.g. "nft/uuid.png") are converted to API proxy URLs. Everything else returns empty string. */
 export function sanitizeImageUrl(url: string | null | undefined): string {
   if (!url) return "";
   if (url === "") return "";
+  // Allow paths served from our own API
+  if (url.startsWith("/api/")) return url;
+  // Legacy minio:// prefix — strip and convert to API URL
+  if (url.startsWith("minio://")) return `/api/images/storage/${url.slice(8)}`;
   // Whitelist safe raster image types — reject SVG (can contain JavaScript)
   const SAFE_DATA_PREFIXES = [
     "data:image/png",
     "data:image/jpeg",
-    "data:image/jpg",
     "data:image/gif",
     "data:image/webp",
   ];
@@ -123,7 +127,8 @@ export function sanitizeImageUrl(url: string | null | undefined): string {
     if (SAFE_DATA_PREFIXES.some((prefix) => url.startsWith(prefix))) return url;
     return "";
   }
-  if (url.startsWith("https://")) return url;
+  // MinIO storage key (e.g. "nft/uuid.png", "avatar/uuid.jpg")
+  if (/^(nft|avatar|logo)\/[\w.-]+$/.test(url)) return `/api/images/storage/${url}`;
   return "";
 }
 

@@ -3,13 +3,13 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { api } from "~/lib/api-client";
 import { useProject } from "~/lib/project-context";
 
-export default function WorkNew() {
+export default function CollectionNew() {
   const params = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { refetchWorks } = useProject();
+  const { refetchCollections } = useProject();
 
-  const workType = () => "nft_collection";
+  const collectionType = () => "nft_collection";
 
   const [name, setName] = createSignal("");
   const [royaltyBps, setRoyaltyBps] = createSignal(10);
@@ -21,13 +21,13 @@ export default function WorkNew() {
     setCreating(true);
     setError("");
     try {
-      const work = await api.createWork(params.id, {
+      const collection = await api.createCollection(params.id, {
         name: name().trim(),
-        work_type: workType(),
+        collection_type: collectionType(),
         royalty_bps: Math.round(royaltyBps() * 100),
       });
-      refetchWorks();
-      navigate(`/projects/${params.id}/works/${work.id}`);
+      refetchCollections();
+      navigate(`/projects/${params.id}/collections/${collection.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {

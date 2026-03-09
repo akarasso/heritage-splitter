@@ -42,8 +42,9 @@ export default function Navbar() {
           <Show when={isAuthenticated()}>
             <div class="hidden md:flex items-center gap-1">
               {[
-                { href: "/dashboard", label: "Projects" },
-                { href: "/projects/new", label: "Create" },
+                ...(user()?.role !== "producer" ? [{ href: "/dashboard", label: "Projects" }] : []),
+                { href: "/showroom", label: "Showroom" },
+                ...(user()?.role !== "producer" ? [{ href: "/projects/new", label: "Create" }] : []),
                 { href: "/docs", label: "Docs" },
               ].map((link) => (
                 <A

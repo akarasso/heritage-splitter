@@ -1,6 +1,6 @@
 import { createContext, useContext } from "solid-js";
 import type { Accessor, Resource } from "solid-js";
-import type { ProjectDetail, User, Work } from "~/lib/api-client";
+import type { ProjectDetail, User, Collection } from "~/lib/api-client";
 
 export interface ProjectContextValue {
   project: Resource<ProjectDetail | undefined>;
@@ -8,8 +8,8 @@ export interface ProjectContextValue {
   user: Accessor<User | null>;
   isCreator: Accessor<boolean>;
   isMember: Accessor<boolean>;
-  works: Resource<Work[] | undefined>;
-  refetchWorks: () => void;
+  collections: Resource<Collection[] | undefined>;
+  refetchCollections: () => void;
 }
 
 export const ProjectContext = createContext<ProjectContextValue>();

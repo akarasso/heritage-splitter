@@ -1,7 +1,7 @@
 import { Show, For, createResource } from "solid-js";
-import { useWork } from "~/lib/work-context";
+import { useCollection } from "~/lib/collection-context";
 import { api } from "~/lib/api-client";
-import type { WorkHistory as WorkHistoryType, TokenTransferEvent, PurchaseEvent, PaymentEvent } from "~/lib/api-client";
+import type { CollectionHistory as CollectionHistoryType, TokenTransferEvent, PurchaseEvent, PaymentEvent } from "~/lib/api-client";
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 
@@ -21,12 +21,12 @@ function explorerTxUrl(hash: string) {
   return `https://testnet.snowtrace.io/tx/${hash}`;
 }
 
-export default function WorkHistory() {
-  const { work } = useWork();
+export default function CollectionHistory() {
+  const { collection } = useCollection();
 
   const [history] = createResource(
-    () => work()?.id && work()?.contract_nft_address ? work()!.id : null,
-    (id) => api.getWorkHistory(id)
+    () => collection()?.id && collection()?.contract_nft_address ? collection()!.id : null,
+    (id) => api.getCollectionHistory(id)
   );
 
   // Group all events into a single timeline sorted by block number desc
@@ -155,7 +155,7 @@ export default function WorkHistory() {
                         if (entry.type === "purchase") {
                           const e = entry.data as PurchaseEvent;
                           return (
-                            <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener"
+                            <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener noreferrer"
                               class="flex items-center gap-3 p-3 rounded-xl transition-colors"
                               style={{ background: "rgba(212,168,83,0.06)", border: "1px solid rgba(212,168,83,0.15)" }}>
                               <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -182,7 +182,7 @@ export default function WorkHistory() {
                         if (entry.type === "payment") {
                           const e = entry.data as PaymentEvent;
                           return (
-                            <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener"
+                            <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener noreferrer"
                               class="flex items-center gap-3 p-3 rounded-xl transition-colors"
                               style={{ background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.15)" }}>
                               <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -210,7 +210,7 @@ export default function WorkHistory() {
                         const e = entry.data as TokenTransferEvent;
                         const isMint = e.from === ZERO_ADDR;
                         return (
-                          <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener"
+                          <a href={explorerTxUrl(e.tx_hash)} target="_blank" rel="noopener noreferrer"
                             class="flex items-center gap-3 p-3 rounded-xl transition-colors"
                             style={{ background: "var(--surface-light)", border: "1px solid var(--border)" }}>
                             <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"

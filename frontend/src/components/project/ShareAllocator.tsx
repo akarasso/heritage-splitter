@@ -11,7 +11,7 @@ const ALLOC_COLORS = [
 
 interface Props {
   projectId: string;
-  workId?: string;
+  collectionId?: string;
   allocations: AllocationDetail[];
   creatorSharesBps: number;
   onUpdate: () => void;
@@ -109,8 +109,8 @@ export default function ShareAllocator(props: Props) {
         distribution_mode: shouldForceEqual ? "equal" : formMode(),
         receives_primary: false,
       };
-      if (props.workId) {
-        await api.createWorkAllocation(props.workId, data);
+      if (props.collectionId) {
+        await api.createCollectionAllocation(props.collectionId, data);
       } else {
         await api.createAllocation(props.projectId, data);
       }
@@ -588,8 +588,9 @@ export default function ShareAllocator(props: Props) {
           Deployment validation
         </h3>
         <div class="space-y-2">
-          <ValidationCheck ok={props.allocations.length > 0} label="At least one share defined" />
-          <ValidationCheck ok={totalAllocBps() <= 10000} label={`Total: ${bpsToPercent(totalAllocBps())} (max 100%)`} />
+          <Show when={totalAllocBps() > 0}>
+            <ValidationCheck ok={totalAllocBps() <= 10000} label={`Total: 100% (shares ${bpsToPercent(totalAllocBps())} + creator ${bpsToPercent(10000 - totalAllocBps())})`} />
+          </Show>
           <For each={props.allocations}>
             {(alloc) => {
               const activeP = alloc.participants.filter(p => p.status !== "rejected" && p.status !== "requested");

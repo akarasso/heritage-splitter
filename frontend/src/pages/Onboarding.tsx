@@ -2,7 +2,8 @@ import { createSignal, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/lib/api-client";
 import { useAuth } from "~/hooks/createAuth";
-import { shortenAddress, resizeImage, typeText, generateAvatar } from "~/lib/utils";
+import { shortenAddress, typeText, generateAvatar } from "~/lib/utils";
+import { showToast } from "~/components/ui/Toast";
 
 const RANDOM_BIOS = [
   "Passionate about contemporary art and new forms of digital expression.",
@@ -89,24 +90,13 @@ export default function Onboarding() {
     if (!legalName().trim() || !birthDate() || !documentNumber().trim()) return;
     setKycVerifying(true);
 
-    // Start AI bio generation in parallel with the mock verification
-    const safeName = legalName().trim().replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '');
-    const bioPromise = api.aiGenerate(
-      `You are an assistant for an artwork and NFT management platform. ` +
-      `Generate a short bio (2-3 sentences max, ~150 characters) for a user profile ` +
-      `named "${safeName}". The bio should be credible, professional, ` +
-      `related to contemporary art, digital art, or artistic production. ` +
-      `Reply ONLY with the bio, no quotes or explanation.`,
-      100,
-    ).then((r) => r.text).catch(() => pick(RANDOM_BIOS));
-
     // Generate avatar from name
     const avatar = generateAvatar(legalName().trim());
 
     // Mock verification — simulate a 2.5s check
     kycTimeoutId = setTimeout(async () => {
       if (!kycMounted) return;
-      const generatedBio = await bioPromise;
+      const generatedBio = pick(RANDOM_BIOS);
       if (!kycMounted) return;
       setKycVerifying(false);
       setKycVerified(true);
@@ -123,10 +113,10 @@ export default function Onboarding() {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     try {
-      const dataUrl = await resizeImage(file, 256, 0.8);
-      setAvatarUrl(dataUrl);
-    } catch {
-      alert("Error resizing image");
+      const result = await api.uploadImage(file, "avatar");
+      setAvatarUrl(result.key);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Error uploading image");
     }
   }
 
@@ -144,7 +134,7 @@ export default function Onboarding() {
       await refreshUser();
       navigate("/dashboard");
     } catch (e) {
-      console.error("Profile save failed:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Profile save failed:", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSaving(false);
     }

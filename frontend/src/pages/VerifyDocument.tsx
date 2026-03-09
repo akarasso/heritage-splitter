@@ -172,7 +172,7 @@ export default function VerifyDocument() {
                     <a
                       href={`https://testnet.snowtrace.io/tx/${result()!.tx_hash}`}
                       target="_blank"
-                      rel="noopener"
+                      rel="noopener noreferrer"
                       class="text-sm font-mono hover:opacity-80 transition-opacity"
                       style={{ color: "var(--emerald)" }}
                     >
@@ -194,7 +194,7 @@ export default function VerifyDocument() {
                       <a
                         href={`https://testnet.snowtrace.io/address/${registryAddr}`}
                         target="_blank"
-                        rel="noopener"
+                        rel="noopener noreferrer"
                         class="text-sm font-mono hover:opacity-80 transition-opacity"
                         style={{ color: "var(--cream-muted)" }}
                       >

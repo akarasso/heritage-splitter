@@ -1,25 +1,19 @@
 import Onboard from "@web3-onboard/core";
 import injectedModule from "@web3-onboard/injected-wallets";
+import { chainIdHex, chainRpc, chainName } from "./chain";
 
 const injected = injectedModule();
 
-const avalancheFuji = {
-  id: "0xA869",
+const primaryChain = {
+  id: chainIdHex,
   token: "AVAX",
-  label: "Avalanche Fuji Testnet",
-  rpcUrl: "https://api.avax-test.network/ext/bc/C/rpc",
-};
-
-const avalancheMainnet = {
-  id: "0xA86A",
-  token: "AVAX",
-  label: "Avalanche C-Chain",
-  rpcUrl: "https://api.avax.network/ext/bc/C/rpc",
+  label: chainName,
+  rpcUrl: chainRpc,
 };
 
 export const onboard = Onboard({
   wallets: [injected],
-  chains: [avalancheFuji, avalancheMainnet],
+  chains: [primaryChain],
   appMetadata: {
     name: "Heritage Splitter",
     description: "Plateforme de royalties conforme au droit francais",

@@ -26,28 +26,28 @@ const BLOCKCHAIN_SECTIONS: DocSection[] = [
         description:
           "Each collection deploys 3 linked contracts:\n\n- CollectionNFT (ERC-721 Enumerable + ERC-2981 Royalties) — the tokens\n- ArtistsSplitter — automatic revenue redistribution among beneficiaries\n- NFTMarket — primary sale market at fixed price\n\nThe creator is the owner of all contracts. The backend is authorized as a minter for gas-free operations.",
         code: `// Addresses deployed after collection creation
-// Available via GET /api/works/{id}
+// Available via GET /api/collections/{id}
 
 {
   "contract_nft_address": "0x...",
   "contract_splitter_address": "0x...",
-  "contract_vault_address": "0x..."
+  "contract_market_address": "0x..."
 }`,
       },
       {
         title: "List NFTs available for purchase",
         description:
-          "Queries the vault to get all tokens for sale with their prices in wei.",
+          "Queries the market to get all tokens for sale with their prices in wei.",
         code: `import { createPublicClient, http } from 'viem'
-import { avalancheFuji } from 'viem/chains'
+import { appChain, chainRpc } from '~/config/chain'
 
 const client = createPublicClient({
-  chain: avalancheFuji,
-  transport: http()
+  chain: appChain,
+  transport: http(chainRpc)
 })
 
 const [tokenIds, prices] = await client.readContract({
-  address: VAULT_ADDRESS,
+  address: MARKET_ADDRESS,
   abi: [{
     name: 'listAvailableTokens',
     type: 'function',
@@ -81,16 +81,16 @@ const [tokenIds, prices] = await client.readContract({
       {
         title: "Buy an NFT (primary sale)",
         description:
-          "Sends a payable transaction to the vault. 100% of the payment is redistributed via the splitter to beneficiaries.",
+          "Sends a payable transaction to the market. 100% of the payment is redistributed via the splitter to beneficiaries.",
         code: `import { createWalletClient, custom } from 'viem'
 
 const wallet = createWalletClient({
-  chain: avalancheFuji,
+  chain: appChain,
   transport: custom(window.ethereum)
 })
 
 const hash = await wallet.writeContract({
-  address: VAULT_ADDRESS,
+  address: MARKET_ADDRESS,
   abi: [{
     name: 'purchase',
     type: 'function',

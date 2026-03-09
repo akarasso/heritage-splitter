@@ -5,6 +5,7 @@ import type { Notification, Conversation, DirectMessageDetail } from "~/lib/api-
 import { useAuth } from "~/hooks/createAuth";
 import { useWebSocket } from "~/hooks/createWebSocket";
 import { formatDate, sanitizeImageUrl } from "~/lib/utils";
+import { showToast } from "~/components/ui/Toast";
 
 const KIND_LABELS: Record<string, string> = {
   join_request: "Join request",
@@ -74,7 +75,7 @@ export default function Activity() {
       }
       setHasMore(res.has_more);
     } catch (e) {
-      console.error("Failed to load messages:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Failed to load messages:", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setLoadingMore(false);
       setInitialLoading(false);
@@ -149,7 +150,7 @@ export default function Activity() {
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      alert(errMsg);
+      showToast(errMsg);
     } finally {
       setSending(false);
     }
@@ -266,7 +267,7 @@ export default function Activity() {
                                   await api.acceptInvitation(notif.reference_id!);
                                   await api.markNotificationRead(notif.id);
                                   refetchNotifs();
-                                } catch (err) { alert((err as Error).message); }
+                                } catch (err) { showToast((err as Error).message); }
                               }}
                             >
                               Accept
@@ -280,7 +281,7 @@ export default function Activity() {
                                   await api.rejectInvitation(notif.reference_id!);
                                   await api.markNotificationRead(notif.id);
                                   refetchNotifs();
-                                } catch (err) { alert((err as Error).message); }
+                                } catch (err) { showToast((err as Error).message); }
                               }}
                             >
                               Decline

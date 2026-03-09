@@ -2,25 +2,60 @@ import { createResource, Show, For, createSignal, createEffect } from "solid-js"
 import { useParams } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
 import { createWalletClient, createPublicClient, custom, http } from "viem";
-import { avalancheFuji } from "viem/chains";
+import { appChain, chainIdHex, chainRpc, chainName } from "~/config/chain";
 import { api } from "~/lib/api-client";
 import type { PublicNft, PublicCollection } from "~/lib/api-client";
 import { LogoFull } from "~/components/ui/Logo";
 import { sanitizeImageUrl } from "~/lib/utils";
 
-const VAULT_ABI = [
+const MARKET_ABI = [
   {
     name: "purchase",
     type: "function",
     stateMutability: "payable",
-    inputs: [{ name: "tokenId", type: "uint256" }, { name: "maxPrice", type: "uint256" }],
+    inputs: [{ name: "listingId", type: "uint256" }],
     outputs: [],
   },
   {
-    name: "tokenPrice",
+    name: "listings",
     type: "function",
     stateMutability: "view",
-    inputs: [{ name: "tokenId", type: "uint256" }],
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "nftContract", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "price", type: "uint256" },
+      { name: "seller", type: "address" },
+      { name: "active", type: "bool" },
+    ],
+  },
+  {
+    name: "listAvailable",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "offset", type: "uint256" },
+      { name: "limit", type: "uint256" },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "tuple[]",
+        components: [
+          { name: "nftContract", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "price", type: "uint256" },
+          { name: "seller", type: "address" },
+          { name: "active", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "listingCount",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
@@ -48,26 +83,60 @@ export default function PublicSale(props: RouteSectionProps) {
   const [purchasingTokenId, setPurchasingTokenId] = createSignal<number | null>(null);
   const [purchaseError, setPurchaseError] = createSignal<string | null>(null);
   const [purchaseSuccess, setPurchaseSuccess] = createSignal<string | null>(null);
-  // Track sold status per token: tokenId → owner address (null = vault = available)
+  // Track sold status per token: tokenId → owner address (null = market = available)
   const [soldMap, setSoldMap] = createSignal<Record<number, string>>({});
-  const [loadingOwnership, setLoadingOwnership] = createSignal(false);
+  // Market listings: tokenId → { listingId, price }
+  const [listingMap, setListingMap] = createSignal<Record<number, { listingId: bigint; price: bigint }>>({});
 
-  // Check on-chain ownership for all NFTs to determine sold/available
-  async function checkOwnership() {
+  // Load market listings and check on-chain ownership
+  async function loadMarketData() {
     const col = collection();
-    if (!col?.contract_nft_address || !col?.contract_vault_address || !col?.nfts?.length) return;
+    if (!col?.contract_nft_address || !col?.contract_market_address || !col?.nfts?.length) return;
 
-    setLoadingOwnership(true);
     try {
       const publicClient = createPublicClient({
-        chain: avalancheFuji,
-        transport: http(),
+        chain: appChain,
+        transport: http(chainRpc),
       });
 
       const nftAddress = col.contract_nft_address as `0x${string}`;
-      const vaultAddr = col.contract_vault_address.toLowerCase();
-      const map: Record<number, string> = {};
+      const marketAddress = col.contract_market_address as `0x${string}`;
+      const marketAddr = col.contract_market_address.toLowerCase();
 
+      // Fetch active listings from market
+      const lMap: Record<number, { listingId: bigint; price: bigint }> = {};
+      try {
+        const count = await publicClient.readContract({
+          address: marketAddress,
+          abi: MARKET_ABI,
+          functionName: "listingCount",
+        }) as bigint;
+        // Read each listing by index
+        const reads = [];
+        for (let i = 0n; i < count; i++) {
+          reads.push(
+            publicClient.readContract({
+              address: marketAddress,
+              abi: MARKET_ABI,
+              functionName: "listings",
+              args: [i],
+            }).then((r: any) => ({ listingId: i, nftContract: r[0], tokenId: r[1], price: r[2], seller: r[3], active: r[4] }))
+          );
+        }
+        const results = await Promise.all(reads);
+        const nftAddr = nftAddress.toLowerCase();
+        for (const l of results) {
+          if (l.active && l.nftContract.toLowerCase() === nftAddr) {
+            lMap[Number(l.tokenId)] = { listingId: l.listingId, price: l.price };
+          }
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) console.error("Failed to load market listings:", e instanceof Error ? e.message : "Unknown error");
+      }
+      setListingMap(lMap);
+
+      // Check ownership for all NFTs
+      const sMap: Record<number, string> = {};
       const results = await Promise.allSettled(
         col.nfts.map(async (nft) => {
           const owner = await publicClient.readContract({
@@ -79,24 +148,20 @@ export default function PublicSale(props: RouteSectionProps) {
           return { tokenId: nft.token_id, owner: owner as string };
         })
       );
-
       for (const r of results) {
-        if (r.status === "fulfilled" && r.value.owner.toLowerCase() !== vaultAddr) {
-          map[r.value.tokenId] = r.value.owner;
+        if (r.status === "fulfilled" && r.value.owner.toLowerCase() !== marketAddr) {
+          sMap[r.value.tokenId] = r.value.owner;
         }
       }
-
-      setSoldMap(map);
+      setSoldMap(sMap);
     } catch (e) {
-      console.error("Ownership check failed:", e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoadingOwnership(false);
+      if (import.meta.env.DEV) console.error("Market data load failed:", e instanceof Error ? e.message : "Unknown error");
     }
   }
 
-  // Trigger ownership check when collection loads
+  // Trigger data load when collection loads
   createEffect(() => {
-    if (collection()) checkOwnership();
+    if (collection()) loadMarketData();
   });
 
   const isSold = (tokenId: number) => tokenId in soldMap();
@@ -104,8 +169,8 @@ export default function PublicSale(props: RouteSectionProps) {
   async function handlePurchase(tokenId: number) {
     if (purchasingTokenId() !== null) return;
     const col = collection();
-    if (!col?.contract_vault_address) {
-      setPurchaseError("This collection does not have a deployed vault yet.");
+    if (!col?.contract_market_address) {
+      setPurchaseError("This collection does not have a deployed market yet.");
       return;
     }
 
@@ -142,13 +207,13 @@ export default function PublicSale(props: RouteSectionProps) {
         return;
       }
       const account = addr as `0x${string}`;
-      const vaultAddress = col.contract_vault_address as `0x${string}`;
+      const marketAddress = col.contract_market_address as `0x${string}`;
 
-      // Ensure correct chain (Avalanche Fuji)
+      // Ensure correct chain
       try {
         await ethereum.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: `0x${avalancheFuji.id.toString(16)}` }],
+          params: [{ chainId: chainIdHex }],
         });
       } catch (switchErr) {
         const err = switchErr as { code?: number };
@@ -156,11 +221,10 @@ export default function PublicSale(props: RouteSectionProps) {
           await ethereum.request({
             method: "wallet_addEthereumChain",
             params: [{
-              chainId: `0x${avalancheFuji.id.toString(16)}`,
-              chainName: "Avalanche Fuji Testnet",
+              chainId: chainIdHex,
+              chainName: chainName,
               nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
-              rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"],
-              blockExplorerUrls: ["https://testnet.snowtrace.io"],
+              rpcUrls: [chainRpc],
             }],
           });
         } else {
@@ -168,46 +232,42 @@ export default function PublicSale(props: RouteSectionProps) {
         }
       }
 
-      const publicClient = createPublicClient({
-        chain: avalancheFuji,
-        transport: http(),
+      // Verify chain ID after switch
+      const currentChainId = await ethereum.request({ method: "eth_chainId" }) as string;
+      if (currentChainId !== chainIdHex) {
+        setPurchaseError("Failed to switch to the correct network. Please switch manually.");
+        setPurchasingTokenId(null);
+        return;
+      }
+
+      // Look up listing for this tokenId
+      const listing = listingMap()[tokenId];
+      if (!listing) {
+        setPurchaseError("This NFT is not currently listed for sale.");
+        setPurchasingTokenId(null);
+        return;
+      }
+
+      const txPublicClient = createPublicClient({
+        chain: appChain,
+        transport: http(chainRpc),
       });
-
-      let priceWei: bigint;
-      try {
-        priceWei = await publicClient.readContract({
-          address: vaultAddress,
-          abi: VAULT_ABI,
-          functionName: "tokenPrice",
-          args: [BigInt(tokenId)],
-        });
-      } catch (rpcErr) {
-        setPurchaseError("Failed to read token price from the blockchain. Please try again.");
-        setPurchasingTokenId(null);
-        return;
-      }
-
-      if (priceWei === 0n) {
-        setPurchaseError("The price for this NFT has not been set on-chain.");
-        setPurchasingTokenId(null);
-        return;
-      }
 
       const walletClient = createWalletClient({
         account,
-        chain: avalancheFuji,
+        chain: appChain,
         transport: custom(ethereum),
       });
 
       const hash = await walletClient.writeContract({
-        address: vaultAddress,
-        abi: VAULT_ABI,
+        address: marketAddress,
+        abi: MARKET_ABI,
         functionName: "purchase",
-        args: [BigInt(tokenId), priceWei],
-        value: priceWei,
+        args: [listing.listingId],
+        value: listing.price,
       });
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      const receipt = await txPublicClient.waitForTransactionReceipt({ hash });
 
       if (receipt.status === "success") {
         setPurchaseSuccess(`Purchase confirmed! TX: ${hash.slice(0, 10)}...${hash.slice(-8)}`);
@@ -218,14 +278,14 @@ export default function PublicSale(props: RouteSectionProps) {
     } catch (err) {
       if (err instanceof Error) {
         const e = err as Error & { code?: number; shortMessage?: string };
-        console.error("Purchase failed:", e.message);
+        if (import.meta.env.DEV) console.error("Purchase failed:", e.message);
         if (e.code === 4001 || e.message?.includes("rejected")) {
           setPurchaseError("Transaction cancelled.");
         } else {
           setPurchaseError(e.shortMessage || e.message || "Error during purchase.");
         }
       } else {
-        console.error("Purchase failed");
+        if (import.meta.env.DEV) console.error("Purchase failed");
         setPurchaseError(String(err) || "Error during purchase.");
       }
     } finally {
@@ -236,7 +296,11 @@ export default function PublicSale(props: RouteSectionProps) {
   function parseAttrs(raw: string): { key: string; value: string }[] {
     try {
       const parsed = JSON.parse(raw || "[]");
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((a: any) => ({
+        key: a.key || a.trait_type || "",
+        value: String(a.value ?? ""),
+      }));
     } catch {
       return [];
     }
@@ -328,7 +392,12 @@ export default function PublicSale(props: RouteSectionProps) {
       {/* Main content */}
       <Show when={collection()}>
         {(col) => {
-          const nfts = () => col().nfts || [];
+          const allNfts = () => col().nfts || [];
+          const nfts = () => allNfts().filter(n => {
+            const inListing = n.token_id in (listingMap() || {});
+            const isSold = n.token_id in (soldMap() || {});
+            return inListing && !isSold;
+          });
           return (
             <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
               {/* Collection hero */}
@@ -556,7 +625,7 @@ export default function PublicSale(props: RouteSectionProps) {
                                   <For each={attrs.slice(0, 3)}>
                                     {(attr) => (
                                       <span
-                                        class="text-[10px] px-1.5 py-0.5 rounded"
+                                        class="text-[10px] px-1.5 py-0.5 rounded break-all max-w-full"
                                         style={{
                                           background: "var(--surface-light)",
                                           color: "var(--text-muted)",
@@ -820,7 +889,7 @@ export default function PublicSale(props: RouteSectionProps) {
                                 {attr.key}
                               </div>
                               <div
-                                class="text-sm font-medium"
+                                class="text-sm font-medium break-all"
                                 style={{ color: "var(--cream)" }}
                               >
                                 {attr.value}

@@ -2,6 +2,7 @@ import { type RouteSectionProps, useLocation, useNavigate } from "@solidjs/route
 import { createEffect, ErrorBoundary, Show } from "solid-js";
 import Navbar from "~/components/ui/Navbar";
 import ModalRoot from "~/components/ui/ModalRoot";
+import { ToastContainer } from "~/components/ui/Toast";
 import { useAuth } from "~/hooks/createAuth";
 import { isPublicDomain, getMainAppUrl } from "~/lib/domains";
 
@@ -11,6 +12,7 @@ function isPublicPath(path: string): boolean {
   if (PUBLIC_PATHS.includes(path)) return true;
   if (path.startsWith("/verify/")) return true;
   if (path.startsWith("/sale/")) return true;
+  if (path.startsWith("/showroom/sale/")) return true;
   return false;
 }
 
@@ -54,7 +56,7 @@ export default function App(props: RouteSectionProps) {
     }
   });
 
-  const isSalePage = () => location.pathname.startsWith("/sale/");
+  const isSalePage = () => location.pathname.startsWith("/sale/") || location.pathname.startsWith("/showroom/sale/");
 
   return (
     <Show when={!isLoading()} fallback={
@@ -75,7 +77,7 @@ export default function App(props: RouteSectionProps) {
               </svg>
             </div>
             <h2 class="text-lg font-bold" style={{ color: "var(--cream)" }}>Something went wrong</h2>
-            <p class="text-sm" style={{ color: "var(--text-muted)" }}>{err?.message || "An unexpected error occurred."}</p>
+            <p class="text-sm" style={{ color: "var(--text-muted)" }}>{(() => { if (import.meta.env.DEV) console.error("ErrorBoundary:", err); return "An unexpected error occurred."; })()}</p>
             <button class="btn-gold" onClick={reset}>Try again</button>
           </div>
         </div>
@@ -87,6 +89,7 @@ export default function App(props: RouteSectionProps) {
               {props.children}
             </div>
             <ModalRoot />
+            <ToastContainer />
           </div>
         </Show>
       </ErrorBoundary>

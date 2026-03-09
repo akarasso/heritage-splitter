@@ -1,12 +1,12 @@
 import { Show } from "solid-js";
-import { useWork } from "~/lib/work-context";
+import { useCollection } from "~/lib/collection-context";
 import SplitVisualizer from "~/components/project/SplitVisualizer";
 
-export default function WorkRepartition() {
-  const { work, user } = useWork();
+export default function CollectionRepartition() {
+  const { collection, user } = useCollection();
 
   return (
-    <Show when={work()}>
+    <Show when={collection()}>
       {(w) => (
         <div class="space-y-6">
           <p class="text-xs" style={{ color: "var(--text-muted)" }}>

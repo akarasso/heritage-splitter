@@ -80,7 +80,7 @@ export function useAuth() {
 
       return { user_exists };
     } catch (err) {
-      console.error("Auth failed:", err instanceof Error ? err.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Auth failed:", err instanceof Error ? err.message : "Unknown error");
       throw err;
     } finally {
       setIsConnecting(false);

@@ -1,13 +1,13 @@
 import { Show, Match, Switch, createMemo } from "solid-js";
-import { useWork } from "~/lib/work-context";
+import { useCollection } from "~/lib/collection-context";
 import { useProject } from "~/lib/project-context";
 import ShareAllocator from "~/components/project/ShareAllocator";
 
-export default function WorkAllocations() {
-  const { work, refetch, isCreator, projectId } = useWork();
+export default function CollectionAllocations() {
+  const { collection, refetch, isCreator, projectId } = useCollection();
   const { project } = useProject();
 
-  const status = () => work()?.status || "draft";
+  const status = () => collection()?.status || "draft";
 
   return (
     <Show
@@ -36,9 +36,9 @@ export default function WorkAllocations() {
           </Show>
           <ShareAllocator
             projectId={projectId()}
-            workId={work()!.id}
-            allocations={work()!.allocations}
-            creatorSharesBps={work()!.creator_shares_bps}
+            collectionId={collection()!.id}
+            allocations={collection()!.allocations}
+            creatorSharesBps={collection()!.creator_shares_bps}
             onUpdate={refetch}
             projectParticipants={project()?.participants}
           />
@@ -52,7 +52,7 @@ export default function WorkAllocations() {
               </h3>
             </div>
             <p class="text-sm" style={{ color: "var(--text-muted)" }}>
-              Approval validated. The work is ready to be deployed on the blockchain.
+              Approval validated. The collection is ready to be deployed on the blockchain.
             </p>
           </div>
         </Match>

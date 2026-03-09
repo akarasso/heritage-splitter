@@ -2,7 +2,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 const REQUEST_TIMEOUT_MS = 30_000;
 
 class ApiClient {
-  private token: string | null = null;
+  private token: string | null = localStorage.getItem("heritage_token");
   private inflightMutations = new Map<string, Promise<any>>();
 
   // Dedup key intentionally includes the full body string. If two requests have
@@ -18,18 +18,36 @@ class ApiClient {
   }
 
   getToken(): string | null {
-    if (!this.token) {
-      this.token = localStorage.getItem("heritage_token");
-    }
     return this.token;
   }
 
   clearToken() {
     this.token = null;
+    // Clean up legacy localStorage token if present
     localStorage.removeItem("heritage_token");
   }
 
+  private checkTokenExpiry(): void {
+    if (!this.token) return;
+    try {
+      const parts = this.token.split(".");
+      if (parts.length !== 3) return;
+      // Base64url decode the payload
+      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const decoded = JSON.parse(atob(payload));
+      if (decoded.exp && decoded.exp < Date.now() / 1000) {
+        this.clearToken();
+        throw new Error("Session expired");
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message === "Session expired") throw e;
+      // If decoding fails, let the server validate
+    }
+  }
+
   private async executeRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+    this.checkTokenExpiry();
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
@@ -202,12 +220,12 @@ class ApiClient {
   }
 
   // Threads & Messages
-  async listThreads(projectId: string, workId?: string) {
-    const params = workId ? `?work_id=${encodeURIComponent(workId)}` : "";
+  async listThreads(projectId: string, collectionId?: string) {
+    const params = collectionId ? `?collection_id=${encodeURIComponent(collectionId)}` : "";
     return this.request<ThreadDetail[]>(`/projects/${projectId}/threads${params}`);
   }
 
-  async createThread(projectId: string, data: { title: string; content: string; work_id?: string }) {
+  async createThread(projectId: string, data: { title: string; content: string; collection_id?: string }) {
     return this.request<ThreadDetail>(`/projects/${projectId}/threads`, {
       method: "POST",
       body: JSON.stringify(data),
@@ -293,21 +311,6 @@ class ApiClient {
   // Kick participant
   async kickParticipant(participantId: string) {
     return this.request<Participant>(`/participants/${participantId}/kick`, { method: "PUT" });
-  }
-
-  // AI
-  async aiGenerate(prompt: string, maxTokens?: number) {
-    return this.request<{ text: string }>("/ai/generate", {
-      method: "POST",
-      body: JSON.stringify({ prompt, max_tokens: maxTokens }),
-    });
-  }
-
-  async aiGenerateImage(prompt: string, size?: string) {
-    return this.request<{ image_base64: string }>("/ai/generate-image", {
-      method: "POST",
-      body: JSON.stringify({ prompt, size }),
-    });
   }
 
   // Documents
@@ -419,58 +422,72 @@ class ApiClient {
     return this.request<VerifyDocumentResult>(`/public/verify-document/${sha256Hash}`);
   }
 
-  // Works
-  async createWork(projectId: string, data: { name: string; description?: string; work_type?: string; royalty_bps?: number }) {
-    return this.request<Work>(`/projects/${projectId}/works`, {
+  // Collections
+  async createCollection(projectId: string, data: { name: string; description?: string; collection_type?: string; royalty_bps?: number }) {
+    return this.request<Collection>(`/projects/${projectId}/collections`, {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async listWorks(projectId: string) {
-    return this.request<Work[]>(`/projects/${projectId}/works`);
+  async listCollections(projectId: string) {
+    return this.request<Collection[]>(`/projects/${projectId}/collections`);
   }
 
-  async getWork(workId: string) {
-    return this.request<WorkDetail>(`/works/${workId}`);
+  async getCollection(collectionId: string) {
+    return this.request<CollectionDetail>(`/collections/${collectionId}`);
   }
 
-  async updateWork(workId: string, data: Partial<{ name: string; description: string; royalty_bps: number }>) {
-    return this.request<Work>(`/works/${workId}`, {
+  async updateCollection(collectionId: string, data: Partial<{ name: string; description: string; royalty_bps: number }>) {
+    return this.request<Collection>(`/collections/${collectionId}`, {
       method: "PUT",
       body: JSON.stringify(data),
     });
   }
 
-  async submitWorkForApproval(workId: string) {
-    return this.request<Work>(`/works/${workId}/submit-for-approval`, { method: "POST" });
+  async submitCollectionForApproval(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/submit-for-approval`, { method: "POST" });
   }
 
-  async validateApproval(workId: string) {
-    return this.request<Work>(`/works/${workId}/validate-approval`, { method: "POST" });
+  async approveCollection(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/approve`, { method: "POST" });
   }
 
-  async deployWork(workId: string) {
-    return this.request<Work>(`/works/${workId}/deploy`, { method: "POST" });
+  async validateApproval(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/validate-approval`, { method: "POST" });
   }
 
-  async createWorkAllocation(workId: string, data: CreateAllocationInput) {
-    return this.request<Allocation>(`/works/${workId}/allocations`, {
+  async deployCollection(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/deploy`, { method: "POST" });
+  }
+
+  async deleteCollection(collectionId: string) {
+    return this.request<{ deleted: boolean }>(`/collections/${collectionId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async createCollectionAllocation(collectionId: string, data: CreateAllocationInput) {
+    return this.request<Allocation>(`/collections/${collectionId}/allocations`, {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  async mintWorkNft(workId: string, data: { title: string; metadata_uri: string }) {
-    return this.request<Nft>(`/works/${workId}/mint`, {
+  async mintCollectionNft(collectionId: string, data: { title: string; draft_nft_id?: string; artist_name?: string }) {
+    return this.request<Nft>(`/collections/${collectionId}/mint`, {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  async listCollectionNfts(collectionId: string) {
+    return this.request<Nft[]>(`/collections/${collectionId}/nfts`);
   }
 
   // Draft NFTs
-  async createDraftNft(workId: string, data: CreateDraftNft) {
-    return this.request<DraftNft>(`/works/${workId}/draft-nfts`, {
+  async createDraftNft(collectionId: string, data: CreateDraftNft) {
+    return this.request<DraftNft>(`/collections/${collectionId}/draft-nfts`, {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -489,16 +506,23 @@ class ApiClient {
     });
   }
 
-  async submitForMintApproval(workId: string) {
-    return this.request<Work>(`/works/${workId}/submit-for-mint-approval`, { method: "POST" });
+  async submitForMintApproval(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/submit-for-mint-approval`, { method: "POST" });
   }
 
-  async publishWork(workId: string) {
-    return this.request<Work>(`/works/${workId}/publish`, { method: "POST" });
+  async publishCollection(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/publish`, { method: "POST" });
   }
 
-  async unpublishWork(workId: string) {
-    return this.request<Work>(`/works/${workId}/unpublish`, { method: "POST" });
+  async unpublishCollection(collectionId: string) {
+    return this.request<Collection>(`/collections/${collectionId}/unpublish`, { method: "POST" });
+  }
+
+  async updateContracts(collectionId: string, data: { contract_nft_address?: string; contract_splitter_address?: string; contract_market_address?: string }) {
+    return this.request<Collection>(`/collections/${collectionId}/contracts`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
   }
 
   // Public
@@ -508,8 +532,206 @@ class ApiClient {
     );
   }
 
-  async getWorkHistory(workId: string) {
-    return this.request<WorkHistory>(`/public/works/${workId}/history`);
+  async getCollectionHistory(collectionId: string) {
+    return this.request<CollectionHistory>(`/public/collections/${collectionId}/history`);
+  }
+
+  // Showrooms
+  async createShowroom(data: { name: string; description?: string }) {
+    return this.request<Showroom>("/showrooms", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listShowrooms() {
+    return this.request<Showroom[]>("/showrooms");
+  }
+
+  async getShowroom(id: string) {
+    return this.request<ShowroomDetail>(`/showrooms/${id}`);
+  }
+
+  async updateShowroom(id: string, data: { name?: string; description?: string }) {
+    return this.request<Showroom>(`/showrooms/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async inviteToShowroom(id: string, userId: string) {
+    return this.request<any>(`/showrooms/${id}/invite`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  async acceptShowroomInvite(id: string) {
+    return this.request<any>(`/showrooms/${id}/accept`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async createShowroomListing(showroomId: string, data: { nft_contract: string; token_id: number; base_price?: string }) {
+    return this.request<ShowroomListing>(`/showrooms/${showroomId}/listings`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateShowroomListing(listingId: string, data: { margin?: string; status?: string }) {
+    return this.request<ShowroomListing>(`/showroom-listings/${listingId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteShowroomListing(listingId: string) {
+    return this.request<any>(`/showroom-listings/${listingId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async removeShowroomParticipant(showroomId: string, userId: string) {
+    return this.request<any>(`/showrooms/${showroomId}/participants/${userId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listProposableCollections(showroomId: string) {
+    return this.request<Collection[]>(`/showrooms/${showroomId}/my-collections`);
+  }
+
+  async proposeCollection(showroomId: string, collectionId: string) {
+    return this.request<ShowroomListing[]>(`/showrooms/${showroomId}/propose-collection`, {
+      method: "POST",
+      body: JSON.stringify({ collection_id: collectionId }),
+    });
+  }
+
+  async unshareCollection(showroomId: string, collectionId: string) {
+    return this.request<any>(`/showrooms/${showroomId}/collections/${collectionId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async batchUpdateMargin(showroomId: string, listingIds: string[], margin: string) {
+    return this.request<any>(`/showrooms/${showroomId}/batch-margin`, {
+      method: "PUT",
+      body: JSON.stringify({ listing_ids: listingIds, margin }),
+    });
+  }
+
+  async deployShowroom(id: string) {
+    return this.request<Showroom>(`/showrooms/${id}/deploy`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async publishShowroom(id: string) {
+    return this.request<Showroom>(`/showrooms/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async unpublishShowroom(id: string) {
+    return this.request<Showroom>(`/showrooms/${id}/unpublish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async getPublicShowroom(slug: string) {
+    return this.request<PublicShowroom>(`/public/showrooms/${slug}`);
+  }
+
+  // Showroom documents
+  async uploadShowroomDocument(showroomId: string, file: File) {
+    const allowedTypes = [
+      "application/pdf",
+      "image/png", "image/jpeg", "image/gif", "image/webp",
+      "text/plain", "text/csv",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error(`File type "${file.type}" is not allowed. Accepted: PDF, images, text, Word, Excel.`);
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const token = this.getToken();
+    const headers: Record<string, string> = { "X-Requested-With": "XMLHttpRequest" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const res = await fetch(`${API_BASE}/showrooms/${showroomId}/documents`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: formData,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || res.statusText || `Request failed (${res.status})`);
+      }
+      return res.json() as Promise<DocumentInfo>;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async listShowroomDocuments(showroomId: string) {
+    return this.request<DocumentInfo[]>(`/showrooms/${showroomId}/documents`);
+  }
+
+  /** Upload an image file to MinIO. Returns { key, url }. */
+  async uploadImage(file: File, category: "nft" | "avatar" | "logo"): Promise<{ key: string; url: string }> {
+    const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      throw new Error(`File type "${file.type || "(empty)"}" is not allowed. Accepted: PNG, JPEG, GIF, WebP.`);
+    }
+    const MAX_SIZES: Record<string, number> = { nft: 10 * 1024 * 1024, logo: 500 * 1024, avatar: 50 * 1024 };
+    const maxSize = MAX_SIZES[category] || MAX_SIZES.nft;
+    if (file.size > maxSize) {
+      throw new Error(`File too large (max ${maxSize >= 1024 * 1024 ? `${maxSize / (1024 * 1024)} MB` : `${maxSize / 1024} KB`})`);
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("category", category);
+
+    const token = this.getToken();
+    const headers: Record<string, string> = { "X-Requested-With": "XMLHttpRequest" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const res = await fetch(`${API_BASE}/images/upload`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: formData,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || `Upload failed: ${res.status}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async getPublicCollection(slug: string): Promise<PublicCollection> {
@@ -620,7 +842,7 @@ export interface ThreadDetail {
   status: string;
   conclusion: string | null;
   concluded_by: string | null;
-  work_id: string | null;
+  collection_id: string | null;
   created_at: string;
   author_name: string;
   author_avatar: string;
@@ -639,24 +861,24 @@ export interface MessageDetail {
   avatar_url: string;
 }
 
-export interface Work {
+export interface Collection {
   id: string;
   project_id: string;
   name: string;
   description: string;
-  work_type: string;
+  collection_type: string;
   status: string;
   royalty_bps: number;
   contract_nft_address: string | null;
   contract_splitter_address: string | null;
-  contract_vault_address?: string | null;
+  contract_market_address?: string | null;
   public_slug?: string | null;
   is_public?: boolean;
   completed_at: string | null;
   created_at: string;
 }
 
-export interface WorkDetail extends Work {
+export interface CollectionDetail extends Collection {
   allocations: AllocationDetail[];
   nfts: Nft[];
   draft_nfts: DraftNft[];
@@ -680,7 +902,7 @@ export interface Nft {
 
 export interface DraftNft {
   id: string;
-  work_id: string;
+  collection_id: string;
   title: string;
   description: string;
   artist_name: string;
@@ -809,7 +1031,7 @@ export interface PaymentEvent {
   tx_hash: string;
 }
 
-export interface WorkHistory {
+export interface CollectionHistory {
   transfers: TokenTransferEvent[];
   purchases: PurchaseEvent[];
   payments: PaymentEvent[];
@@ -836,13 +1058,78 @@ export interface PublicBeneficiary {
 export interface PublicCollection {
   name: string;
   description: string;
-  work_type: string;
+  collection_type: string;
   contract_nft_address: string | null;
   contract_splitter_address: string | null;
-  contract_vault_address: string | null;
+  contract_market_address: string | null;
   nfts: PublicNft[];
   total_nft_count: number;
   beneficiaries: PublicBeneficiary[];
+}
+
+// Showroom types
+export interface Showroom {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  creator_id: string;
+  contract_address: string | null;
+  public_slug: string | null;
+  is_public: boolean;
+  created_at: string;
+}
+
+export interface ShowroomParticipantDetail {
+  id: string;
+  showroom_id: string;
+  user_id: string;
+  status: string;
+  invited_at: string;
+  accepted_at: string | null;
+  display_name: string;
+  wallet_address: string;
+}
+
+export interface ShowroomListing {
+  id: string;
+  showroom_id: string;
+  nft_contract: string;
+  token_id: number;
+  base_price: string;
+  margin: string;
+  proposed_by: string;
+  proposed_by_name: string;
+  status: string;
+  title: string;
+  image_url: string;
+  artist_name: string;
+  collection_id: string | null;
+  collection_name: string;
+  created_at: string;
+}
+
+export interface ShowroomDetail extends Showroom {
+  participants: ShowroomParticipantDetail[];
+  listings: ShowroomListing[];
+}
+
+export interface PublicShowroomListing {
+  nft_contract: string;
+  token_id: number;
+  base_price: string;
+  margin: string;
+  title: string;
+  image_url: string;
+  artist_name: string;
+  collection_name: string;
+}
+
+export interface PublicShowroom {
+  name: string;
+  description: string;
+  contract_address: string | null;
+  listings: PublicShowroomListing[];
 }
 
 export const api = new ApiClient();

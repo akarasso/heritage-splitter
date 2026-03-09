@@ -3,9 +3,10 @@ import { useProject } from "~/lib/project-context";
 import { api } from "~/lib/api-client";
 import type { DocumentInfo, PublicUser } from "~/lib/api-client";
 import { formatDate } from "~/lib/utils";
+import { showToast } from "~/components/ui/Toast";
 import { onboard } from "~/config/wallet";
 import { createWalletClient, custom, type WalletClient } from "viem";
-import { avalancheFuji } from "viem/chains";
+import { appChain, chainIdHex, chainRpc, chainName } from "~/config/chain";
 
 export default function ProjectDocuments() {
   const { project, user, isCreator, isMember } = useProject();
@@ -50,7 +51,7 @@ export default function ProjectDocuments() {
     const p = project();
     if (!p) return;
     if (file.size > 50 * 1024 * 1024) {
-      alert("File is too large (max 50 MB).");
+      showToast("File is too large (max 50 MB).");
       return;
     }
     setUploading(true);
@@ -58,7 +59,7 @@ export default function ProjectDocuments() {
       await api.uploadDocument(p.id, file);
       refetch();
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     } finally {
       setUploading(false);
     }
@@ -89,24 +90,22 @@ export default function ProjectDocuments() {
 
       // Switch to Avalanche Fuji if needed
       const currentChainId = parseInt(wallet.chains[0]?.id, 16) || 0;
-      if (currentChainId !== avalancheFuji.id) {
+      if (currentChainId !== appChain.id) {
         try {
           await wallet.provider.request({
             method: "wallet_switchEthereumChain",
-            params: [{ chainId: `0x${avalancheFuji.id.toString(16)}` }],
+            params: [{ chainId: chainIdHex }],
           });
         } catch (switchErr) {
-          // Chain not added yet — add it
           const switchError = switchErr as { code?: number };
           if (switchError.code === 4902) {
             await wallet.provider.request({
               method: "wallet_addEthereumChain",
               params: [{
-                chainId: `0x${avalancheFuji.id.toString(16)}`,
-                chainName: "Avalanche Fuji Testnet",
+                chainId: chainIdHex,
+                chainName: chainName,
                 nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
-                rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"],
-                blockExplorerUrls: ["https://testnet.snowtrace.io"],
+                rpcUrls: [chainRpc],
               }],
             });
           } else {
@@ -126,7 +125,7 @@ export default function ProjectDocuments() {
 
       const walletClient = createWalletClient({
         account: address,
-        chain: avalancheFuji,
+        chain: appChain,
         transport: custom(wallet.provider),
       });
 
@@ -136,7 +135,7 @@ export default function ProjectDocuments() {
         domain: {
           name: "DocumentRegistry",
           version: "1",
-          chainId: BigInt(avalancheFuji.id),
+          chainId: BigInt(appChain.id),
           verifyingContract: registryAddress,
         },
         types: {
@@ -159,7 +158,7 @@ export default function ProjectDocuments() {
       await api.certifyDocument(doc.id, { signature, deadline });
       refetch();
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     } finally {
       setCertifying(null);
     }
@@ -175,7 +174,7 @@ export default function ProjectDocuments() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     }
   }
 
@@ -190,7 +189,7 @@ export default function ProjectDocuments() {
       setShareDocId(null);
       setSelectedUsers([]);
     } catch (e) {
-      alert((e as Error).message);
+      showToast((e as Error).message);
     }
   }
 
@@ -374,7 +373,7 @@ export default function ProjectDocuments() {
                               <a
                                 href={`https://testnet.snowtrace.io/tx/${doc.tx_hash}`}
                                 target="_blank"
-                                rel="noopener"
+                                rel="noopener noreferrer"
                                 class="text-[10px] px-2 py-0.5 rounded-full font-medium"
                                 style={{
                                   color: "var(--emerald)",
@@ -470,7 +469,7 @@ export default function ProjectDocuments() {
                               <a
                                 href={`https://testnet.snowtrace.io/address/${doc.original_certified_by}`}
                                 target="_blank"
-                                rel="noopener"
+                                rel="noopener noreferrer"
                                 class="font-mono font-medium hover:underline"
                                 style={{ color: "var(--gold)" }}
                                 onClick={(e) => e.stopPropagation()}
@@ -509,7 +508,7 @@ export default function ProjectDocuments() {
                               <a
                                 href={`https://testnet.snowtrace.io/tx/${doc.tx_hash}`}
                                 target="_blank"
-                                rel="noopener"
+                                rel="noopener noreferrer"
                                 class="text-[11px] font-mono hover:opacity-80 transition-opacity"
                                 style={{ color: "var(--emerald)" }}
                                 onClick={(e) => e.stopPropagation()}
@@ -532,7 +531,7 @@ export default function ProjectDocuments() {
                               <a
                                 href={`https://testnet.snowtrace.io/address/${doc.certified_by}`}
                                 target="_blank"
-                                rel="noopener"
+                                rel="noopener noreferrer"
                                 class="text-[11px] font-mono hover:opacity-80 transition-opacity"
                                 style={{ color: "var(--gold)" }}
                                 onClick={(e) => e.stopPropagation()}
@@ -549,7 +548,7 @@ export default function ProjectDocuments() {
                                 <a
                                   href={`https://testnet.snowtrace.io/address/${addr}`}
                                   target="_blank"
-                                  rel="noopener"
+                                  rel="noopener noreferrer"
                                   class="text-[11px] font-mono hover:opacity-80 transition-opacity"
                                   style={{ color: "var(--cream-muted)" }}
                                   onClick={(e) => e.stopPropagation()}

@@ -16,9 +16,9 @@ export default function ProjectLayout(props: ParentProps) {
     () => params.id,
     (id) => api.getProject(id)
   );
-  const [works, { refetch: refetchWorks }] = createResource(
+  const [collections, { refetch: refetchCollections }] = createResource(
     () => params.id,
-    (id) => api.listWorks(id)
+    (id) => api.listCollections(id)
   );
   const [editingLogo, setEditingLogo] = createSignal(false);
   const [uploadingLogo, setUploadingLogo] = createSignal(false);
@@ -67,27 +67,27 @@ export default function ProjectLayout(props: ParentProps) {
 
   const basePath = () => `/projects/${params.id}`;
 
-  const hasNftCollections = () => (works() || []).some(w => w.work_type === "nft_collection");
+  const hasNftCollections = () => (collections() || []).some(w => w.collection_type === "nft_collection");
 
-  // Detect when inside a specific work (not the listing pages)
-  const isInsideWork = () => {
+  // Detect when inside a specific collection (not the listing pages)
+  const isInsideCollection = () => {
     const path = location.pathname;
-    const base = basePath() + "/works/";
+    const base = basePath() + "/collections/";
     if (!path.startsWith(base)) return false;
     const rest = path.slice(base.length);
-    // "nft" and "new" are listing pages, not a specific work
+    // "nft" and "new" are listing pages, not a specific collection
     return rest !== "nft" && rest !== "new" && !rest.startsWith("nft/") && !rest.startsWith("new/");
   };
 
-  // Find current work when inside a work
-  const currentWork = () => {
-    if (!isInsideWork()) return null;
-    const workId = params.workId;
-    if (!workId) return null;
-    return (works() || []).find(w => w.id === workId) || null;
+  // Find current collection when inside a collection
+  const currentCollection = () => {
+    if (!isInsideCollection()) return null;
+    const collectionId = params.collectionId;
+    if (!collectionId) return null;
+    return (collections() || []).find(w => w.id === collectionId) || null;
   };
 
-  const currentWorkType = () => currentWork()?.work_type || null;
+  const currentCollectionType = () => currentCollection()?.collection_type || null;
 
   const tabs = () => {
     const base = [
@@ -98,7 +98,7 @@ export default function ProjectLayout(props: ParentProps) {
     ];
 
     if (hasNftCollections()) {
-      base.push({ label: "Collections NFT", path: "/works/nft", memberOnly: false, creatorOnly: false });
+      base.push({ label: "Collections NFT", path: "/collections", memberOnly: false, creatorOnly: false });
     }
 
     return base.filter(t => {
@@ -114,10 +114,10 @@ export default function ProjectLayout(props: ParentProps) {
     if (tabPath === "") {
       return current === full || current === full + "/";
     }
-    // When inside a specific work, highlight the parent collection tab
-    if (isInsideWork()) {
-      const wt = currentWorkType();
-      if (tabPath === "/works/nft" && wt === "nft_collection") return true;
+    // When inside a specific collection, highlight the parent collection tab
+    if (isInsideCollection()) {
+      const wt = currentCollectionType();
+      if (tabPath === "/collections" && wt === "nft_collection") return true;
       return false;
     }
     return current.startsWith(full);
@@ -156,11 +156,11 @@ export default function ProjectLayout(props: ParentProps) {
           <>
             {/* Breadcrumb */}
             <Breadcrumb items={
-              isInsideWork() && currentWork()
+              isInsideCollection() && currentCollection()
                 ? [
                     { label: "Projects", href: "/dashboard" },
                     { label: p().name, href: basePath() },
-                    { label: currentWork()!.name },
+                    { label: currentCollection()!.name },
                   ]
                 : [
                     { label: "Projects", href: "/dashboard" },
@@ -274,8 +274,8 @@ export default function ProjectLayout(props: ParentProps) {
                 </div>
               </Show>
 
-              {/* Tab navigation — hidden when inside a specific work */}
-              <Show when={!isInsideWork()}>
+              {/* Tab navigation — hidden when inside a specific collection */}
+              <Show when={!isInsideCollection()}>
                 <nav class="flex gap-1 mb-8 p-1 rounded-xl" style={{ background: "var(--surface-light)" }}>
                   {tabs().map((tab) => (
                     <A
@@ -293,7 +293,7 @@ export default function ProjectLayout(props: ParentProps) {
               </Show>
 
             {/* Sub-page content */}
-            <ProjectContext.Provider value={{ project, refetch, user, isCreator, isMember, works, refetchWorks }}>
+            <ProjectContext.Provider value={{ project, refetch, user, isCreator, isMember, collections, refetchCollections }}>
               {props.children}
             </ProjectContext.Provider>
           </>

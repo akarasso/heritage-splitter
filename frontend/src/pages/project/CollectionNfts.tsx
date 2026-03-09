@@ -1,7 +1,7 @@
 import { Show, For, createSignal, createEffect, createResource } from "solid-js";
 import { createPublicClient, http } from "viem";
-import { avalancheFuji } from "viem/chains";
-import { useWork } from "~/lib/work-context";
+import { appChain, chainRpc } from "~/config/chain";
+import { useCollection } from "~/lib/collection-context";
 import { api } from "~/lib/api-client";
 import type { DraftNft, Nft, PublicUser } from "~/lib/api-client";
 import { showAlert, showConfirm } from "~/lib/modal-store";
@@ -16,9 +16,13 @@ function isMintedNft(nft: NftOrDraft): nft is Nft {
 function safeParseAttrs(raw: string): { key: string; value: string }[] {
   try {
     const parsed = JSON.parse(raw || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((a: any) => ({
+      key: a.key || a.trait_type || "",
+      value: a.value || "",
+    }));
   } catch (e) {
-    console.warn("[WorkNfts] Failed to parse attributes:", e instanceof Error ? e.message : "parse error");
+    console.warn("[CollectionNfts] Failed to parse attributes:", e instanceof Error ? e.message : "parse error");
     return [];
   }
 }
@@ -43,8 +47,8 @@ const NFT_ABI = [
 
 const RESERVED_ATTRIBUTES = ["title", "name", "description", "image", "artist", "price", "token_id", "metadata_uri"];
 
-export default function WorkNfts() {
-  const { work, refetch, isCreator } = useWork();
+export default function CollectionNfts() {
+  const { collection, refetch, isCreator } = useCollection();
   const [editing, setEditing] = createSignal<DraftNft | null>(null);
   const [showForm, setShowForm] = createSignal(false);
   const [minting, setMinting] = createSignal(false);
@@ -63,9 +67,9 @@ export default function WorkNfts() {
     } catch { return {}; }
   });
 
-  // Get artist participants from work allocations
+  // Get artist participants from collection allocations
   const artistParticipants = () => {
-    const w = work();
+    const w = collection();
     if (!w) return [];
     const map = usersMap() || {};
     const artists: { userId: string; name: string }[] = [];
@@ -130,16 +134,24 @@ export default function WorkNfts() {
     setShowForm(true);
   }
 
-  function handleImageUpload(e: Event) {
+  const [uploading, setUploading] = createSignal(false);
+
+  async function handleImageUpload(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
       showAlert({ title: "Image too large", message: "Maximum file size is 10 MB." });
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setFormImageUrl(reader.result as string);
-    reader.readAsDataURL(file);
+    setUploading(true);
+    try {
+      const { key } = await api.uploadImage(file, "nft");
+      setFormImageUrl(key);
+    } catch (err) {
+      showAlert({ title: "Upload failed", message: (err as Error).message || "Could not upload image. Please try again." });
+    } finally {
+      setUploading(false);
+    }
   }
 
   function addAttribute() {
@@ -168,7 +180,7 @@ export default function WorkNfts() {
   }
 
   async function handleSaveDraft() {
-    const w = work();
+    const w = collection();
     if (!w || !formTitle().trim()) return;
 
     setSaving(true);
@@ -234,12 +246,12 @@ export default function WorkNfts() {
   }
 
   async function handleMintSingle(draft: DraftNft) {
-    const w = work();
+    const w = collection();
     if (!w) return;
     setMintingId(draft.id);
     setError("");
     try {
-      await api.mintWorkNft(w.id, {
+      await api.mintCollectionNft(w.id, {
         title: draft.title,
         metadata_uri: draft.metadata_uri || `ipfs://${draft.title.replace(/\s+/g, "-").toLowerCase()}`,
       });
@@ -252,7 +264,7 @@ export default function WorkNfts() {
   }
 
   async function handleMintAll() {
-    const w = work();
+    const w = collection();
     if (!w) return;
     const drafts = w.draft_nfts || [];
     if (drafts.length === 0) return;
@@ -260,7 +272,7 @@ export default function WorkNfts() {
     setError("");
     try {
       for (const draft of drafts) {
-        await api.mintWorkNft(w.id, {
+        await api.mintCollectionNft(w.id, {
           title: draft.title,
           metadata_uri: draft.metadata_uri || `ipfs://${draft.title.replace(/\s+/g, "-").toLowerCase()}`,
         });
@@ -274,32 +286,32 @@ export default function WorkNfts() {
     }
   }
 
-  const isDraft = () => work()?.status === "draft";
-  const isDeployed = () => work()?.status === "deployed";
-  const isMintReady = () => work()?.status === "mint_ready";
-  const isPendingApproval = () => work()?.status === "pending_approval";
-  const isPendingMintApproval = () => work()?.status === "pending_mint_approval";
-  const isApproved = () => work()?.status === "approved";
-  const isReadyToDeploy = () => work()?.status === "ready_to_deploy";
+  const isDraft = () => collection()?.status === "draft";
+  const isDeployed = () => collection()?.status === "deployed";
+  const isMintReady = () => collection()?.status === "mint_ready";
+  const isPendingApproval = () => collection()?.status === "pending_approval";
+  const isPendingMintApproval = () => collection()?.status === "pending_mint_approval";
+  const isApproved = () => collection()?.status === "approved";
+  const isReadyToDeploy = () => collection()?.status === "ready_to_deploy";
   const canEdit = () => isDraft() || isPendingApproval() || isApproved() || isDeployed();
   const canAddNft = () => isDraft() || isPendingApproval() || isApproved() || isDeployed();
-  const mintedNfts = () => work()?.nfts || [];
-  const drafts = () => work()?.draft_nfts || [];
+  const mintedNfts = () => collection()?.nfts || [];
+  const drafts = () => collection()?.draft_nfts || [];
 
-  // On-chain ownership check: tokenId → buyer address (absent = still in vault = for sale)
+  // On-chain ownership check: tokenId → buyer address (absent = still in market = for sale)
   const [soldMap, setSoldMap] = createSignal<Record<number, string>>({});
 
   async function checkOwnership() {
-    const w = work();
-    if (!w?.contract_nft_address || !w?.contract_vault_address) return;
+    const w = collection();
+    if (!w?.contract_nft_address || !w?.contract_market_address) return;
     const nfts = w.nfts || [];
     if (nfts.length === 0) return;
 
     try {
-      const publicClient = createPublicClient({ chain: avalancheFuji, transport: http() });
+      const publicClient = createPublicClient({ chain: appChain, transport: http(chainRpc) });
       const nftAddress = w.contract_nft_address as `0x${string}`;
-      if (!w.contract_vault_address) return;
-      const vaultAddr = w.contract_vault_address.toLowerCase();
+      if (!w.contract_market_address) return;
+      const marketAddr = w.contract_market_address.toLowerCase();
       const map: Record<number, string> = {};
 
       const results = await Promise.allSettled(
@@ -315,19 +327,19 @@ export default function WorkNfts() {
       );
 
       for (const r of results) {
-        if (r.status === "fulfilled" && r.value.owner.toLowerCase() !== vaultAddr) {
+        if (r.status === "fulfilled" && r.value.owner.toLowerCase() !== marketAddr) {
           map[r.value.tokenId] = r.value.owner;
         }
       }
       setSoldMap(map);
     } catch (e) {
-      console.error("Ownership check failed:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Ownership check failed:", e instanceof Error ? e.message : "Unknown error");
     }
   }
 
-  // Re-check when work data changes (nfts list or contract addresses)
+  // Re-check when collection data changes (nfts list or contract addresses)
   createEffect(() => {
-    if (work()?.contract_nft_address && (work()?.nfts?.length || 0) > 0) {
+    if (collection()?.contract_nft_address && (collection()?.nfts?.length || 0) > 0) {
       checkOwnership();
     }
   });
@@ -460,12 +472,12 @@ export default function WorkNfts() {
                   <svg class="w-8 h-8 mb-1" style={{ color: "var(--text-muted)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
-                  <span class="text-[10px]" style={{ color: "var(--text-muted)" }}>Upload</span>
-                  <input type="file" accept="image/*" class="hidden" onChange={handleImageUpload} />
+                  <span class="text-[10px]" style={{ color: "var(--text-muted)" }}>{uploading() ? "Uploading..." : "Upload"}</span>
+                  <input type="file" accept="image/*" class="hidden" onChange={handleImageUpload} disabled={uploading()} />
                 </label>
               }>
                 <div class="relative">
-                  <img src={formImageUrl()} alt="NFT preview" class="w-32 h-32 rounded-xl object-cover" />
+                  <img src={sanitizeImageUrl(formImageUrl())} alt="NFT preview" class="w-32 h-32 rounded-xl object-cover" />
                   <button class="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs"
                     style={{ background: "var(--accent)", color: "white" }}
                     onClick={() => setFormImageUrl("")} aria-label="Remove image">&times;</button>
@@ -630,10 +642,10 @@ export default function WorkNfts() {
                         </div>
                       </Show>
                       <Show when={attrs.length > 0}>
-                        <div class="flex flex-wrap gap-1 mt-2">
+                        <div class="flex flex-wrap gap-1 mt-2 overflow-hidden">
                           <For each={attrs.slice(0, 3)}>
                             {(attr) => (
-                              <span class="text-[10px] px-1.5 py-0.5 rounded"
+                              <span class="text-[10px] px-1.5 py-0.5 rounded truncate max-w-full"
                                 style={{ background: "var(--surface-light)", color: "var(--text-muted)" }}>
                                 {attr.key}: {attr.value}
                               </span>
@@ -734,10 +746,10 @@ export default function WorkNfts() {
                         </p>
                       </Show>
                       <Show when={attrs.length > 0}>
-                        <div class="flex flex-wrap gap-1 mt-2">
+                        <div class="flex flex-wrap gap-1 mt-2 overflow-hidden">
                           <For each={attrs.slice(0, 3)}>
                             {(attr) => (
-                              <span class="text-[10px] px-1.5 py-0.5 rounded"
+                              <span class="text-[10px] px-1.5 py-0.5 rounded truncate max-w-full"
                                 style={{ background: "var(--surface-light)", color: "var(--text-muted)" }}>
                                 {attr.key}: {attr.value}
                               </span>
@@ -851,7 +863,7 @@ export default function WorkNfts() {
                           {(attr) => (
                             <div class="p-2 rounded-lg" style={{ background: "var(--surface-light)" }}>
                               <div class="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{attr.key}</div>
-                              <div class="text-sm font-medium" style={{ color: "var(--cream)" }}>{attr.value}</div>
+                              <div class="text-sm font-medium break-all" style={{ color: "var(--cream)" }}>{attr.value}</div>
                             </div>
                           )}
                         </For>

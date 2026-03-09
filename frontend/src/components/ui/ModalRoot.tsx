@@ -88,7 +88,7 @@ export default function ModalRoot() {
       try {
         await s.options.onConfirm();
       } catch (err) {
-        console.error("Modal confirm error:", err instanceof Error ? err.message : "Unknown error");
+        if (import.meta.env.DEV) console.error("Modal confirm error:", err instanceof Error ? err.message : "Unknown error");
         setLoading(false);
         return; // Don't close modal on error
       }

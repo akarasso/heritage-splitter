@@ -7,6 +7,7 @@ export interface WsMessage {
 }
 
 let ws: WebSocket | null = null;
+let wsReady = false;
 let listeners: Set<(msg: WsMessage) => void> = new Set();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let lastToken: string | null = null;
@@ -23,18 +24,29 @@ function connect() {
   const url = `${protocol}//${window.location.host}/api/ws`;
 
   try {
-    ws = new WebSocket(url, ["bearer", token]);
+    ws = new WebSocket(url);
+    wsReady = false;
 
     ws.onopen = () => {
       // Reset attempts on successful connection
       reconnectAttempts = 0;
+      // Send auth as first message instead of subprotocol
+      ws?.send(JSON.stringify({ type: "auth", token }));
     };
 
     ws.onmessage = (event) => {
       try {
-        const msg: WsMessage = JSON.parse(event.data);
+        const msg = JSON.parse(event.data);
+        // Wait for auth_ok before dispatching other messages
+        if (!wsReady) {
+          if (msg.type === "auth_ok") {
+            wsReady = true;
+          }
+          return;
+        }
+        const wsMsg: WsMessage = msg;
         const handlers = Array.from(listeners);
-        handlers.forEach((fn) => fn(msg));
+        handlers.forEach((fn) => fn(wsMsg));
       } catch (e) {
         console.warn("[WS] Failed to parse message:", e instanceof Error ? e.message : "parse error");
       }
@@ -42,6 +54,7 @@ function connect() {
 
     ws.onclose = () => {
       ws = null;
+      wsReady = false;
       // Auto-reconnect with exponential backoff, only if there are active listeners
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -68,9 +81,12 @@ function ensureConnected() {
   if (currentToken && lastToken && currentToken !== lastToken && ws) {
     ws.close();
     ws = null;
+    wsReady = false;
   }
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    connect();
+  if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) {
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      connect();
+    }
   }
 }
 
@@ -108,5 +124,6 @@ export function disconnectWebSocket() {
     ws.close();
     ws = null;
   }
+  wsReady = false;
   listeners.clear();
 }

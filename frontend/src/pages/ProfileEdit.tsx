@@ -2,7 +2,8 @@ import { createSignal, onMount, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/lib/api-client";
 import { useAuth } from "~/hooks/createAuth";
-import { resizeImage, sanitizeImageUrl } from "~/lib/utils";
+import { sanitizeImageUrl } from "~/lib/utils";
+import { showToast } from "~/components/ui/Toast";
 
 export default function ProfileEdit() {
   const navigate = useNavigate();
@@ -37,11 +38,11 @@ export default function ProfileEdit() {
     if (!file) return;
     setUploadingAvatar(true);
     try {
-      const dataUrl = await resizeImage(file, 256, 0.8);
-      setAvatarUrl(dataUrl);
-      setAvatarPreview(dataUrl);
-    } catch {
-      alert("Error resizing image");
+      const result = await api.uploadImage(file, "avatar");
+      setAvatarUrl(result.key);
+      setAvatarPreview(sanitizeImageUrl(result.key));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Error uploading image");
     } finally {
       setUploadingAvatar(false);
     }
@@ -60,7 +61,7 @@ export default function ProfileEdit() {
       await refreshUser();
       navigate("/dashboard");
     } catch (e) {
-      console.error("Profile save failed:", e instanceof Error ? e.message : "Unknown error");
+      if (import.meta.env.DEV) console.error("Profile save failed:", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSaving(false);
     }

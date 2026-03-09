@@ -1,13 +1,13 @@
 import { Show, createSignal } from "solid-js";
-import { useWork } from "~/lib/work-context";
+import { useCollection } from "~/lib/collection-context";
 import { api } from "~/lib/api-client";
 import { showAlert, showConfirm } from "~/lib/modal-store";
 import { getPublicSaleUrl } from "~/lib/domains";
 
 const POST_DEPLOY_STATUSES = ["deployed", "pending_mint_approval", "mint_ready"];
 
-export default function WorkOverview() {
-  const { work, refetch, isCreator } = useWork();
+export default function CollectionOverview() {
+  const { collection, refetch, isCreator } = useCollection();
   const [editingRoyalty, setEditingRoyalty] = createSignal(false);
   const [royaltyInput, setRoyaltyInput] = createSignal("");
   const [savingRoyalty, setSavingRoyalty] = createSignal(false);
@@ -15,10 +15,10 @@ export default function WorkOverview() {
   const [unpublishing, setUnpublishing] = createSignal(false);
   const [copiedUrl, setCopiedUrl] = createSignal(false);
 
-  const isPostDeploy = () => POST_DEPLOY_STATUSES.includes(work()?.status || "");
+  const isPostDeploy = () => POST_DEPLOY_STATUSES.includes(collection()?.status || "");
 
   async function copyUrl() {
-    const url = getPublicSaleUrl(work()!.public_slug!);
+    const url = getPublicSaleUrl(collection()!.public_slug!);
     try {
       await navigator.clipboard.writeText(url);
     } catch {
@@ -38,7 +38,7 @@ export default function WorkOverview() {
   async function handlePublish() {
     setPublishing(true);
     try {
-      await api.publishWork(work()!.id);
+      await api.publishCollection(collection()!.id);
       refetch();
     } catch (e) {
       showAlert({ title: "Error", message: (e as Error).message });
@@ -56,7 +56,7 @@ export default function WorkOverview() {
       onConfirm: async () => {
         setUnpublishing(true);
         try {
-          await api.unpublishWork(work()!.id);
+          await api.unpublishCollection(collection()!.id);
           refetch();
         } catch (e) {
           showAlert({ title: "Error", message: (e as Error).message });
@@ -68,7 +68,7 @@ export default function WorkOverview() {
   }
 
   const participantStats = () => {
-    const allocs = work()?.allocations || [];
+    const allocs = collection()?.allocations || [];
     const acceptedIds = new Set<string>();
     const pendingIds = new Set<string>();
     for (const a of allocs) {
@@ -88,7 +88,7 @@ export default function WorkOverview() {
   };
 
   function startEditRoyalty() {
-    setRoyaltyInput(String((work()?.royalty_bps || 0) / 100));
+    setRoyaltyInput(String((collection()?.royalty_bps || 0) / 100));
     setEditingRoyalty(true);
   }
 
@@ -100,7 +100,7 @@ export default function WorkOverview() {
     }
     setSavingRoyalty(true);
     try {
-      await api.updateWork(work()!.id, { royalty_bps: Math.round(pct * 100) });
+      await api.updateCollection(collection()!.id, { royalty_bps: Math.round(pct * 100) });
       setEditingRoyalty(false);
       refetch();
     } catch (e) {
@@ -116,7 +116,7 @@ export default function WorkOverview() {
       <div class="grid grid-cols-2 gap-4">
         <div class="card text-center">
           <div class="text-2xl font-bold font-mono" style={{ color: "var(--gold)" }}>
-            {(work()?.allocations || []).length + 1}
+            {(collection()?.allocations || []).length + 1}
           </div>
           <div class="text-xs mt-1" style={{ color: "var(--text-muted)" }}>Shares</div>
         </div>
@@ -148,8 +148,8 @@ export default function WorkOverview() {
             <span style={{ color: "var(--text-muted)" }}>Royalties</span>
             <Show when={editingRoyalty()} fallback={
               <div class="flex items-center gap-2">
-                <span style={{ color: "var(--cream)" }}>{(work()?.royalty_bps || 0) / 100}%</span>
-                <Show when={work()?.status === "draft" && isCreator()}>
+                <span style={{ color: "var(--cream)" }}>{(collection()?.royalty_bps || 0) / 100}%</span>
+                <Show when={collection()?.status === "draft" && isCreator()}>
                   <button class="text-xs px-2 py-0.5 rounded-lg transition-colors"
                     style={{ color: "var(--gold)", background: "rgba(212,168,83,0.08)" }}
                     onClick={startEditRoyalty}>Edit</button>
@@ -171,10 +171,10 @@ export default function WorkOverview() {
               </div>
             </Show>
           </div>
-          <Show when={work()?.work_type === "nft_collection"}>
+          <Show when={collection()?.collection_type === "nft_collection"}>
             <div class="flex justify-between">
               <span style={{ color: "var(--text-muted)" }}>NFTs minted</span>
-              <span style={{ color: "var(--cream)" }}>{(work()?.nfts || []).length}</span>
+              <span style={{ color: "var(--cream)" }}>{(collection()?.nfts || []).length}</span>
             </div>
           </Show>
         </div>
@@ -182,7 +182,7 @@ export default function WorkOverview() {
 
       {/* Publish / Public URL — post-deploy */}
       <Show when={isPostDeploy()}>
-        <Show when={!work()?.is_public}>
+        <Show when={!collection()?.is_public}>
           <button
             class="btn-gold w-full text-sm"
             onClick={handlePublish}
@@ -193,7 +193,7 @@ export default function WorkOverview() {
           </button>
         </Show>
 
-        <Show when={work()?.is_public && work()?.public_slug}>
+        <Show when={collection()?.is_public && collection()?.public_slug}>
           <div class="card" style={{ padding: "0", overflow: "hidden" }}>
             {/* Header */}
             <div style={{ padding: "14px 20px", "border-bottom": "1px solid var(--border)", display: "flex", "align-items": "center", "justify-content": "space-between" }}>
@@ -216,13 +216,13 @@ export default function WorkOverview() {
             {/* URL row */}
             <div style={{ padding: "16px 20px", display: "flex", "align-items": "center", gap: "12px" }}>
               <a
-                href={getPublicSaleUrl(work()!.public_slug!)}
+                href={getPublicSaleUrl(collection()!.public_slug!)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-sm font-mono flex-1"
                 style={{ color: "var(--gold)", "word-break": "break-all" }}
               >
-                {getPublicSaleUrl(work()!.public_slug!)}
+                {getPublicSaleUrl(collection()!.public_slug!)}
               </a>
               <div class="flex items-center gap-2 shrink-0">
                 <button
@@ -237,7 +237,7 @@ export default function WorkOverview() {
                   {copiedUrl() ? "Copied!" : "Copy"}
                 </button>
                 <a
-                  href={getPublicSaleUrl(work()!.public_slug!)}
+                  href={getPublicSaleUrl(collection()!.public_slug!)}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="text-xs px-3 py-1.5 rounded-md transition-colors font-medium"

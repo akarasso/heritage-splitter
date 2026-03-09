@@ -11,17 +11,24 @@ import ProjectOverview from "./pages/project/ProjectOverview";
 import ProjectDiscussion from "./pages/project/ProjectDiscussion";
 import ProjectActivity from "./pages/project/ProjectActivity";
 import ProjectDocuments from "./pages/project/ProjectDocuments";
-import WorkNew from "./pages/project/WorkNew";
-import WorkLayout from "./pages/project/WorkLayout";
-import WorkOverview from "./pages/project/WorkOverview";
-import WorkAllocations from "./pages/project/WorkAllocations";
-import WorkRepartition from "./pages/project/WorkRepartition";
-import WorkSimulation from "./pages/project/WorkSimulation";
-import WorkNfts from "./pages/project/WorkNfts";
-import WorkDiscussion from "./pages/project/WorkDiscussion";
-import WorkIntegration from "./pages/project/WorkIntegration";
-import WorkHistory from "./pages/project/WorkHistory";
-import ProjectNftCollections from "./pages/project/ProjectNftCollections";
+import CollectionNew from "./pages/project/CollectionNew";
+import CollectionLayout from "./pages/project/CollectionLayout";
+import CollectionOverview from "./pages/project/CollectionOverview";
+import CollectionAllocations from "./pages/project/CollectionAllocations";
+import CollectionRepartition from "./pages/project/CollectionRepartition";
+import CollectionSimulation from "./pages/project/CollectionSimulation";
+import CollectionNfts from "./pages/project/CollectionNfts";
+import CollectionDiscussion from "./pages/project/CollectionDiscussion";
+import CollectionIntegration from "./pages/project/CollectionIntegration";
+import CollectionHistory from "./pages/project/CollectionHistory";
+import ProjectCollections from "./pages/project/ProjectCollections";
+import ShowroomList from "./pages/showroom/ShowroomList";
+import ShowroomNew from "./pages/showroom/ShowroomNew";
+import ShowroomLayout from "./pages/showroom/ShowroomLayout";
+import ShowroomOverview from "./pages/showroom/ShowroomOverview";
+import ShowroomDocuments from "./pages/showroom/ShowroomDocuments";
+import ShowroomListings from "./pages/showroom/ShowroomListings";
+import ShowroomIntegration from "./pages/showroom/ShowroomIntegration";
 
 import ProfileEdit from "./pages/ProfileEdit";
 import Onboarding from "./pages/Onboarding";
@@ -43,18 +50,27 @@ render(
         <Route path="/discussion" component={ProjectDiscussion} />
         <Route path="/documents" component={ProjectDocuments} />
         <Route path="/activity" component={ProjectActivity} />
-        <Route path="/works/nft" component={ProjectNftCollections} />
-        <Route path="/works/new" component={WorkNew} />
-        <Route path="/works/:workId" component={WorkLayout}>
-          <Route path="/" component={WorkOverview} />
-          <Route path="/allocations" component={WorkAllocations} />
-          <Route path="/repartition" component={WorkRepartition} />
-          <Route path="/simulation" component={WorkSimulation} />
-          <Route path="/nfts" component={WorkNfts} />
-          <Route path="/discussion" component={WorkDiscussion} />
-          <Route path="/history" component={WorkHistory} />
-          <Route path="/integration" component={WorkIntegration} />
+        <Route path="/collections" component={ProjectCollections} />
+        <Route path="/collections/new" component={CollectionNew} />
+        <Route path="/collections/:collectionId" component={CollectionLayout}>
+          <Route path="/" component={CollectionOverview} />
+          <Route path="/allocations" component={CollectionAllocations} />
+          <Route path="/repartition" component={CollectionRepartition} />
+          <Route path="/simulation" component={CollectionSimulation} />
+          <Route path="/nfts" component={CollectionNfts} />
+          <Route path="/discussion" component={CollectionDiscussion} />
+          <Route path="/history" component={CollectionHistory} />
+          <Route path="/integration" component={CollectionIntegration} />
         </Route>
+      </Route>
+      <Route path="/showroom" component={ShowroomList} />
+      <Route path="/showroom/new" component={ShowroomNew} />
+      <Route path="/showroom/sale/:slug" component={lazy(() => import('./pages/showroom/PublicShowroom'))} />
+      <Route path="/showroom/:id" component={ShowroomLayout}>
+        <Route path="/" component={ShowroomOverview} />
+        <Route path="/listings" component={ShowroomListings} />
+        <Route path="/integration" component={ShowroomIntegration} />
+        <Route path="/documents" component={ShowroomDocuments} />
       </Route>
       <Route path="/profile/edit" component={ProfileEdit} />
       <Route path="/verify/document" component={VerifyDocument} />

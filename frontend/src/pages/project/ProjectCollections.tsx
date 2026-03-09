@@ -2,12 +2,12 @@ import { Show, For } from "solid-js";
 import { A, useParams, useNavigate } from "@solidjs/router";
 import { useProject } from "~/lib/project-context";
 
-export default function ProjectNftCollections() {
+export default function ProjectCollections() {
   const params = useParams();
   const navigate = useNavigate();
-  const { works, isCreator } = useProject();
+  const { collections, isCreator } = useProject();
 
-  const nftCollections = () => (works() || []).filter(w => w.work_type === "nft_collection");
+  const nftCollections = () => (collections() || []).filter(w => w.collection_type === "nft_collection");
 
   const statusLabel = (status: string) => {
     switch (status) {
@@ -36,7 +36,7 @@ export default function ProjectNftCollections() {
         <Show when={isCreator()}>
           <button
             class="btn-secondary text-xs"
-            onClick={() => navigate(`/projects/${params.id}/works/new?type=nft_collection`)}
+            onClick={() => navigate(`/projects/${params.id}/collections/new?type=nft_collection`)}
           >
             + Create a collection
           </button>
@@ -54,7 +54,7 @@ export default function ProjectNftCollections() {
           <For each={nftCollections()}>
             {(w) => (
               <A
-                href={`/projects/${params.id}/works/${w.id}`}
+                href={`/projects/${params.id}/collections/${w.id}`}
                 class="card flex items-center justify-between transition-all hover:opacity-80"
               >
                 <div class="flex items-center gap-3">

@@ -1,7 +1,7 @@
 import { useParams } from "@solidjs/router";
 import ProjectDiscussion from "./ProjectDiscussion";
 
-export default function WorkDiscussion() {
+export default function CollectionDiscussion() {
   const params = useParams();
-  return <ProjectDiscussion workId={params.workId} />;
+  return <ProjectDiscussion collectionId={params.collectionId} />;
 }
