@@ -4,8 +4,8 @@ import { api } from "~/lib/api-client";
 
 export default function ShowroomNew() {
   const navigate = useNavigate();
-  const [name, setName] = createSignal("");
-  const [description, setDescription] = createSignal("");
+  const [name, setName] = createSignal("Downtown Gallery");
+  const [description, setDescription] = createSignal("A curated digital storefront showcasing emerging artists and limited-edition NFT collections.");
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal("");
 

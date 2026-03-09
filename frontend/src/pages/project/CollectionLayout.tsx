@@ -56,7 +56,6 @@ export default function CollectionLayout(props: ParentProps) {
     { label: "Overview", path: "" },
     { label: "Shares", path: "/allocations" },
     { label: "Revenue split", path: "/repartition" },
-    { label: "Simulation", path: "/simulation" },
     { label: "NFTs", path: "/nfts", nftOnly: true },
     { label: "History", path: "/history", deployed: true },
     { label: "Discussion", path: "/discussion" },

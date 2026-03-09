@@ -600,7 +600,7 @@ class ApiClient {
   }
 
   async listProposableCollections(showroomId: string) {
-    return this.request<Collection[]>(`/showrooms/${showroomId}/my-collections`);
+    return this.request<(Collection & { project_name: string })[]>(`/showrooms/${showroomId}/my-collections`);
   }
 
   async proposeCollection(showroomId: string, collectionId: string) {
@@ -700,7 +700,7 @@ class ApiClient {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
       throw new Error(`File type "${file.type || "(empty)"}" is not allowed. Accepted: PNG, JPEG, GIF, WebP.`);
     }
-    const MAX_SIZES: Record<string, number> = { nft: 10 * 1024 * 1024, logo: 500 * 1024, avatar: 50 * 1024 };
+    const MAX_SIZES: Record<string, number> = { nft: 10 * 1024 * 1024, logo: 10 * 1024 * 1024, avatar: 2 * 1024 * 1024 };
     const maxSize = MAX_SIZES[category] || MAX_SIZES.nft;
     if (file.size > maxSize) {
       throw new Error(`File too large (max ${maxSize >= 1024 * 1024 ? `${maxSize / (1024 * 1024)} MB` : `${maxSize / 1024} KB`})`);

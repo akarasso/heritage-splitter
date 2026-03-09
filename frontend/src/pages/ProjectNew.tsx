@@ -6,8 +6,8 @@ import { showToast } from "~/components/ui/Toast";
 
 export default function ProjectNew() {
   const navigate = useNavigate();
-  const [name, setName] = createSignal("");
-  const [description, setDescription] = createSignal("");
+  const [name, setName] = createSignal("Ephemeral Lights");
+  const [description, setDescription] = createSignal("A collaborative art project exploring the interplay between light, movement and digital media. Each piece captures fleeting moments of urban luminescence, bridging street photography and generative art.");
   const [logoUrl, setLogoUrl] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [uploading, setUploading] = createSignal(false);

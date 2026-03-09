@@ -16,7 +16,6 @@ import CollectionLayout from "./pages/project/CollectionLayout";
 import CollectionOverview from "./pages/project/CollectionOverview";
 import CollectionAllocations from "./pages/project/CollectionAllocations";
 import CollectionRepartition from "./pages/project/CollectionRepartition";
-import CollectionSimulation from "./pages/project/CollectionSimulation";
 import CollectionNfts from "./pages/project/CollectionNfts";
 import CollectionDiscussion from "./pages/project/CollectionDiscussion";
 import CollectionIntegration from "./pages/project/CollectionIntegration";
@@ -56,7 +55,6 @@ render(
           <Route path="/" component={CollectionOverview} />
           <Route path="/allocations" component={CollectionAllocations} />
           <Route path="/repartition" component={CollectionRepartition} />
-          <Route path="/simulation" component={CollectionSimulation} />
           <Route path="/nfts" component={CollectionNfts} />
           <Route path="/discussion" component={CollectionDiscussion} />
           <Route path="/history" component={CollectionHistory} />

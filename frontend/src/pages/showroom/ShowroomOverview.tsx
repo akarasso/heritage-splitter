@@ -1,6 +1,6 @@
 import { Show, For, createSignal, createResource, createMemo, onCleanup } from "solid-js";
 import { api } from "~/lib/api-client";
-import type { ShowroomParticipantDetail, PublicUser, Collection } from "~/lib/api-client";
+import type { ShowroomParticipantDetail, PublicUser } from "~/lib/api-client";
 import { sanitizeImageUrl } from "~/lib/utils";
 import { showToast } from "~/components/ui/Toast";
 import { useShowroom } from "~/lib/showroom-context";
@@ -10,7 +10,7 @@ export default function ShowroomOverview() {
   const { showroom, refetch, user, isOwner, isMember } = useShowroom();
 
   const [inviting, setInviting] = createSignal(false);
-  const [proposing, setProposing] = createSignal(false);
+  const [proposingId, setProposingId] = createSignal<string | null>(null);
   const [publishing, setPublishing] = createSignal(false);
   const [unpublishing, setUnpublishing] = createSignal(false);
   const [copiedUrl, setCopiedUrl] = createSignal(false);
@@ -96,12 +96,12 @@ export default function ShowroomOverview() {
   async function handleProposeCollection(collectionId: string) {
     const sr = showroom();
     if (!sr) return;
-    setProposing(true);
+    setProposingId(collectionId);
     try {
       await api.proposeCollection(sr.id, collectionId);
       refetch();
       refetchProposable();
-    } catch (err) { if (import.meta.env.DEV) console.error("Propose failed:", err); showToast((err as Error).message); } finally { setProposing(false); }
+    } catch (err) { if (import.meta.env.DEV) console.error("Propose failed:", err); showToast((err as Error).message); } finally { setProposingId(null); }
   }
 
   function getShowroomSaleUrl(slug: string): string {
@@ -387,15 +387,15 @@ export default function ShowroomOverview() {
                   <Show when={sharedCollections().length > 0}><div class="divider my-3" /></Show>
                   <div class="space-y-2">
                     <For each={proposableCollections() || []}>
-                      {(col: Collection) => (
+                      {(col) => (
                         <div class="flex items-center justify-between p-3 rounded-lg" style={{ background: "var(--noir-light)" }}>
                           <div class="min-w-0 flex-1">
-                            <p class="text-sm font-medium truncate" style={{ color: "var(--cream)" }}>{col.name}</p>
+                            <p class="text-sm font-medium truncate" style={{ color: "var(--cream)" }}>{col.project_name} - {col.name}</p>
                             <p class="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{col.description?.slice(0, 80) || "Deployed collection"}</p>
                           </div>
                           <div class="flex items-center gap-3 ml-4 shrink-0">
                             <span class="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: "rgba(107,114,128,0.12)", color: "var(--text-muted)" }}>not shared</span>
-                            <button class="btn-gold text-xs" onClick={() => handleProposeCollection(col.id)} disabled={proposing()}>{proposing() ? "..." : "Share"}</button>
+                            <button class="btn-gold text-xs" onClick={() => handleProposeCollection(col.id)} disabled={proposingId() !== null}>{proposingId() === col.id ? "..." : "Share"}</button>
                           </div>
                         </div>
                       )}
