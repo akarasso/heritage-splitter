@@ -64,8 +64,8 @@ pub async fn upload_image(
 
     // Validate size per category
     let max_size = match cat.as_str() {
-        "avatar" => 50 * 1024,       // 50 KB
-        "logo" => 500 * 1024,        // 500 KB
+        "avatar" => 2 * 1024 * 1024,  // 2 MB
+        "logo" => 10 * 1024 * 1024,  // 10 MB
         _ => 10 * 1024 * 1024,       // 10 MB for NFTs
     };
     if data.len() > max_size {

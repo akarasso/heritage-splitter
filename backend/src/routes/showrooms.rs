@@ -8,6 +8,15 @@ use crate::models::{Showroom, CreateShowroom, UpdateShowroom, ShowroomParticipan
 use crate::services::blockchain;
 use crate::AppState;
 
+/// Collection with project name for display
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct CollectionWithProject {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub collection: Collection,
+    pub project_name: String,
+}
+
 /// Convert AVAX price string (e.g. "1.5") to wei string for storage
 fn avax_to_wei_string(price_str: &str) -> String {
     let trimmed = price_str.trim();
@@ -736,8 +745,14 @@ pub async fn propose_collection(
         return Err(AppError::BadRequest("No available NFTs in this collection (all sold or delisted)".into()));
     }
 
+    // Fetch project name for display
+    let project_name: String = sqlx::query_scalar("SELECT name FROM projects WHERE id = ?")
+        .bind(&collection.project_id)
+        .fetch_one(&state.pool)
+        .await?;
+
     let now = chrono::Utc::now().naive_utc();
-    let collection_name = collection.name.clone();
+    let collection_name = format!("{} - {}", project_name, collection.name);
     let mut created_listings = Vec::new();
 
     for nft in &available_nfts {
@@ -787,7 +802,7 @@ pub async fn list_proposable_collections(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<Vec<Collection>>> {
+) -> AppResult<Json<Vec<CollectionWithProject>>> {
     // Verify user is participant or creator of the showroom
     let showroom: Showroom = sqlx::query_as("SELECT * FROM showrooms WHERE id = ?")
         .bind(&id)
@@ -808,8 +823,8 @@ pub async fn list_proposable_collections(
     }
 
     // Get deployed collections from user's projects, excluding already proposed ones
-    let collections: Vec<Collection> = sqlx::query_as(
-        "SELECT DISTINCT c.* FROM collections c
+    let collections: Vec<CollectionWithProject> = sqlx::query_as(
+        "SELECT DISTINCT c.*, p.name as project_name FROM collections c
          INNER JOIN projects p ON p.id = c.project_id
          LEFT JOIN participants pt ON pt.project_id = p.id AND pt.user_id = ? AND pt.status = 'accepted'
          WHERE (p.creator_id = ? OR pt.id IS NOT NULL)
