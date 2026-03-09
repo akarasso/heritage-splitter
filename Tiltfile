@@ -18,6 +18,7 @@ def parse_dotenv(path):
     return env
 
 _env = parse_dotenv('backend/.env')
+_fenv = parse_dotenv('frontend/.env')
 
 k8s_yaml(blob("""
 apiVersion: v1
@@ -76,6 +77,13 @@ docker_build(
     'heritage-frontend',
     './frontend',
     dockerfile='./frontend/Dockerfile',
+    build_args={
+        'VITE_FACTORY_ADDRESS': _fenv.get('VITE_FACTORY_ADDRESS', ''),
+        'VITE_DOCUMENT_REGISTRY_ADDRESS': _fenv.get('VITE_DOCUMENT_REGISTRY_ADDRESS', ''),
+        'VITE_CHAIN_RPC': _fenv.get('VITE_CHAIN_RPC', ''),
+        'VITE_CHAIN_ID': _fenv.get('VITE_CHAIN_ID', ''),
+        'VITE_CHAIN_LABEL': _fenv.get('VITE_CHAIN_LABEL', ''),
+    },
     ignore=['**/*.tmp.*', '**/*~', '**/*.swp', 'node_modules'],
 )
 

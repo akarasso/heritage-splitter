@@ -189,7 +189,7 @@ export default function VerifyDocument() {
                 <div class="flex items-center justify-between py-2">
                   <span class="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Registry</span>
                   {(() => {
-                    const registryAddr = import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS || "0x2876e2E97d62A837ed38645fd0B648d0502c878d";
+                    const registryAddr = import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS;
                     return (
                       <a
                         href={`https://testnet.snowtrace.io/address/${registryAddr}`}

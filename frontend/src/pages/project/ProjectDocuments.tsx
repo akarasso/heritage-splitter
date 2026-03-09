@@ -121,7 +121,7 @@ export default function ProjectDocuments() {
       const deadline = Math.floor(Date.now() / 1000) + 600;
 
       const hashHex = `0x${doc.sha256_hash}` as `0x${string}`;
-      const registryAddress = (import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS || "0x2876e2E97d62A837ed38645fd0B648d0502c878d") as `0x${string}`;
+      const registryAddress = (import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS) as `0x${string}`;
 
       const walletClient = createWalletClient({
         account: address,
@@ -543,7 +543,7 @@ export default function ProjectDocuments() {
                           <div class="flex items-center gap-2">
                             <span class="text-[10px] uppercase tracking-wide w-20 shrink-0" style={{ color: "var(--text-muted)" }}>Registry</span>
                             {(() => {
-                              const addr = import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS || "0x2876e2E97d62A837ed38645fd0B648d0502c878d";
+                              const addr = import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS;
                               return (
                                 <a
                                   href={`https://testnet.snowtrace.io/address/${addr}`}

@@ -61,13 +61,15 @@ spec:
             - name: CHAIN_ID
               value: "43113"
             - name: FACTORY_ADDRESS
-              value: "0xC1785ecf38d373e9EF76f07680254Aa00e65b97e"
+              value: "0x3C11E18FaB750B85916501A71a6A621df0CA5ab1"
+            - name: MARKET_ADDRESS
+              value: "0x3FD5c4216eff75E6988d079A88c43325c3216E99"
             - name: CERTIFIER_ADDRESS
               value: "0xbC03569e83d37Af715Ce0FF1997C6245c8A36d58"
             - name: DOC_REGISTRY_ADDRESS
-              value: "0x2876e2E97d62A837ed38645fd0B648d0502c878d"
+              value: "0x9f126B09053E450377f1045BCDbbb0d5E6502E2A"
             - name: REGISTRY_ADDRESS
-              value: "0x6839A0555330CED7aaDCa8c7333ee234Ed487c3D"
+              value: "0x4ed1C6d8DFa89485958287146210d68AfC844A9D"
             - name: DOCUMENT_STORAGE_PATH
               value: "/data/documents"
             - name: CERTIFIER_PRIVATE_KEY
@@ -89,6 +91,8 @@ spec:
                   key: minio-secret-key
             - name: MINIO_BUCKET
               value: "heritage"
+            - name: CORS_ORIGIN
+              value: "https://avax.emblem-tech.eu"
           volumeMounts:
             - name: db-storage
               mountPath: /data

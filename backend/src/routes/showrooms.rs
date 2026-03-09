@@ -335,6 +335,78 @@ pub async fn accept_showroom_invite(
     .fetch_one(&state.pool)
     .await?;
 
+    // Auto-propose all deployed collections from this artist
+    let collections: Vec<Collection> = sqlx::query_as(
+        "SELECT DISTINCT c.* FROM collections c
+         INNER JOIN projects p ON p.id = c.project_id
+         LEFT JOIN participants pt ON pt.project_id = p.id AND pt.user_id = ? AND pt.status = 'accepted'
+         WHERE (p.creator_id = ? OR pt.id IS NOT NULL)
+         AND c.contract_nft_address IS NOT NULL
+         AND c.id NOT IN (SELECT DISTINCT collection_id FROM showroom_listings WHERE showroom_id = ? AND collection_id IS NOT NULL)"
+    )
+    .bind(&claims.user_id)
+    .bind(&claims.user_id)
+    .bind(&id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    for collection in &collections {
+        let nfts: Vec<Nft> = sqlx::query_as(
+            "SELECT * FROM nfts WHERE collection_id = ? ORDER BY token_id"
+        )
+        .bind(&collection.id)
+        .fetch_all(&state.pool)
+        .await?;
+
+        if nfts.is_empty() { continue; }
+
+        let nft_contract = match &collection.contract_nft_address {
+            Some(addr) => addr.clone(),
+            None => continue,
+        };
+
+        let active_tokens = if let Some(ref market_addr) = collection.contract_market_address {
+            blockchain::get_active_token_ids(
+                &state.config.avalanche_rpc_url,
+                market_addr,
+                &nft_contract,
+            ).await.unwrap_or_default()
+        } else {
+            nfts.iter().map(|n| n.token_id as u64).collect()
+        };
+
+        let project_name: String = sqlx::query_scalar("SELECT name FROM projects WHERE id = ?")
+            .bind(&collection.project_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or_default();
+
+        let collection_name = format!("{} - {}", project_name, collection.name);
+
+        for nft in &nfts {
+            if !active_tokens.contains(&(nft.token_id as u64)) { continue; }
+
+            let listing_id = Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO showroom_listings (id, showroom_id, nft_contract, token_id, base_price, margin, proposed_by, status, title, image_url, artist_name, collection_id, collection_name)
+                 VALUES (?, ?, ?, ?, ?, '0', ?, 'proposed', ?, ?, ?, ?, ?)"
+            )
+            .bind(&listing_id)
+            .bind(&id)
+            .bind(&nft_contract)
+            .bind(&nft.token_id)
+            .bind(&avax_to_wei_string(&nft.price))
+            .bind(&claims.user_id)
+            .bind(&nft.title)
+            .bind(&nft.image_url)
+            .bind(&nft.artist_name)
+            .bind(&collection.id)
+            .bind(&collection_name)
+            .execute(&state.pool)
+            .await;
+        }
+    }
+
     Ok(Json(updated))
 }
 

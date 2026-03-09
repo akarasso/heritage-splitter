@@ -5,6 +5,11 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile
 COPY . .
+ARG VITE_FACTORY_ADDRESS
+ARG VITE_DOCUMENT_REGISTRY_ADDRESS
+ARG VITE_CHAIN_RPC
+ARG VITE_CHAIN_ID
+ARG VITE_CHAIN_LABEL
 RUN pnpm build
 
 FROM caddy:2-alpine@sha256:a1b7e624f860619cea121bdbc5dec2e112401666298c6507c6793b0a3ee6fc8e

@@ -4,7 +4,7 @@ import Navbar from "~/components/ui/Navbar";
 import ModalRoot from "~/components/ui/ModalRoot";
 import { ToastContainer } from "~/components/ui/Toast";
 import { useAuth } from "~/hooks/createAuth";
-import { isPublicDomain, getMainAppUrl } from "~/lib/domains";
+
 
 const PUBLIC_PATHS = ["/", "/onboarding", "/verify"];
 
@@ -25,14 +25,6 @@ export default function App(props: RouteSectionProps) {
     if (isLoading()) return;
 
     const path = location.pathname;
-
-    // On public domain, only allow /sale/* pages — redirect everything else to main domain
-    if (isPublicDomain()) {
-      if (!path.startsWith("/sale/")) {
-        window.location.href = getMainAppUrl(path);
-      }
-      return;
-    }
 
     if (!isAuthenticated()) {
       // Not authenticated — only allow public pages

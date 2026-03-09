@@ -63,7 +63,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app: minio
+              app.kubernetes.io/name: minio
       ports:
         - port: 9000
           protocol: TCP
@@ -82,7 +82,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: minio
+      app.kubernetes.io/name: minio
   policyTypes:
     - Ingress
   ingress:

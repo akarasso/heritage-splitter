@@ -97,7 +97,7 @@ export default function ShowroomDocuments() {
       const { nonce } = await api.getCertifierNonce(address);
       const deadline = Math.floor(Date.now() / 1000) + 600;
       const hashHex = `0x${doc.sha256_hash}` as `0x${string}`;
-      const registryAddress = (import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS || "0x2876e2E97d62A837ed38645fd0B648d0502c878d") as `0x${string}`;
+      const registryAddress = (import.meta.env.VITE_DOCUMENT_REGISTRY_ADDRESS) as `0x${string}`;
 
       const walletClient = createWalletClient({ account: address, chain: appChain, transport: custom(wallet.provider) });
 
