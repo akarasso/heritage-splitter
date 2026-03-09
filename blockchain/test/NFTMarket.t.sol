@@ -9,7 +9,7 @@ import "../src/PaymentRegistry.sol";
 import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract NFTMarketTest is Test {
-    NFTMarket public vault;
+    NFTMarket public market;
     CollectionNFT public nft;
     ArtistsSplitter public splitter;
     PaymentRegistry public registry;
@@ -35,52 +35,168 @@ contract NFTMarketTest is Test {
         wallets[2] = droitDeSuite;
 
         uint256[] memory shares = new uint256[](3);
-        shares[0] = 5000; // 50%
-        shares[1] = 3500; // 35%
-        shares[2] = 1500; // 15%
+        shares[0] = 5000;
+        shares[1] = 3500;
+        shares[2] = 1500;
 
         splitter = new ArtistsSplitter(producer, wallets, shares, address(registry));
         nft = new CollectionNFT("Heritage Art", "HART", address(splitter), 1000, producer, "https://example.com/collection", minter);
-        vault = new NFTMarket(address(nft), payable(address(splitter)), producer, minter);
+        market = new NFTMarket(producer, minter);
 
         vm.deal(buyer, 100 ether);
     }
 
+    /// @dev Helper: mint an NFT to producer, approve market, list it
+    function _mintAndList(uint256 price) internal returns (uint256 listingId) {
+        vm.prank(producer);
+        uint256 tokenId = nft.mint(producer, "ipfs://QmTest");
+
+        vm.startPrank(producer);
+        nft.approve(address(market), tokenId);
+        listingId = market.list(address(nft), tokenId, price);
+        vm.stopPrank();
+    }
+
     function test_constructor() public view {
-        assertEq(address(vault.nftContract()), address(nft));
-        assertEq(vault.splitter(), payable(address(splitter)));
-        assertEq(vault.owner(), producer);
+        assertEq(market.owner(), producer);
+        assertEq(market.minter(), minter);
     }
 
-    function test_setPrice() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
+    function test_list() public {
+        uint256 listingId = _mintAndList(1 ether);
 
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
-        assertEq(vault.tokenPrice(tokenId), 1 ether);
+        assertEq(listingId, 0);
+        assertEq(market.listingCount(), 1);
+        assertEq(market.availableCount(), 1);
+
+        // NFT should be held by market
+        assertEq(nft.ownerOf(0), address(market));
     }
 
-    function test_setPrice_onlyAuthorized() public {
+    function test_list_onlyAuthorized() public {
         vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
+        uint256 tokenId = nft.mint(buyer, "ipfs://QmTest");
 
         vm.prank(buyer);
         vm.expectRevert(NFTMarket.NotAuthorized.selector);
-        vault.setPrice(tokenId, 1 ether);
+        market.list(address(nft), tokenId, 1 ether);
     }
 
-    function test_setPriceBatch() public {
+    function test_list_alreadyListed() public {
+        _mintAndList(1 ether);
+
+        // Try to list the same NFT again (it's already in the market)
+        vm.prank(producer);
+        vm.expectRevert(NFTMarket.AlreadyListed.selector);
+        market.list(address(nft), 0, 2 ether);
+    }
+
+    function test_delist() public {
+        _mintAndList(1 ether);
+
+        vm.prank(producer);
+        market.delist(0);
+
+        assertEq(market.availableCount(), 0);
+        // NFT returned to seller (producer)
+        assertEq(nft.ownerOf(0), producer);
+    }
+
+    function test_setPrice() public {
+        _mintAndList(1 ether);
+
+        vm.prank(producer);
+        market.setPrice(0, 2 ether);
+
+        (,, uint256 price,,) = market.listings(0);
+        assertEq(price, 2 ether);
+    }
+
+    function test_setPrice_onlyAuthorized() public {
+        _mintAndList(1 ether);
+
+        vm.prank(buyer);
+        vm.expectRevert(NFTMarket.NotAuthorized.selector);
+        market.setPrice(0, 2 ether);
+    }
+
+    function test_purchase() public {
+        _mintAndList(1 ether);
+
+        vm.prank(buyer);
+        market.purchase{value: 1 ether}(0);
+
+        assertEq(nft.ownerOf(0), buyer);
+        assertEq(market.availableCount(), 0);
+
+        // Funds pushed to beneficiaries via splitter: 50%, 35%, 15%
+        assertEq(artist.balance, 0.5 ether);
+        assertEq(gallery.balance, 0.35 ether);
+        assertEq(droitDeSuite.balance, 0.15 ether);
+    }
+
+    function test_purchaseFor() public {
+        _mintAndList(1 ether);
+        address recipient = makeAddr("recipient");
+
+        // purchaseFor is open — no allowedCallers check needed
+        vm.prank(buyer);
+        market.purchaseFor{value: 1 ether}(0, recipient);
+
+        // NFT goes to recipient, not buyer
+        assertEq(nft.ownerOf(0), recipient);
+    }
+
+    function test_purchase_insufficientPayment() public {
+        _mintAndList(1 ether);
+
+        vm.prank(buyer);
+        vm.expectRevert(NFTMarket.InsufficientPayment.selector);
+        market.purchase{value: 0.5 ether}(0);
+    }
+
+    function test_purchase_listingNotActive() public {
+        _mintAndList(1 ether);
+
+        // Delist first
+        vm.prank(producer);
+        market.delist(0);
+
+        vm.prank(buyer);
+        vm.expectRevert(NFTMarket.ListingNotActive.selector);
+        market.purchase{value: 1 ether}(0);
+    }
+
+    function test_purchase_overpaymentRefund() public {
+        _mintAndList(1 ether);
+
+        uint256 buyerBalBefore = buyer.balance;
+
+        vm.prank(buyer);
+        market.purchase{value: 3 ether}(0);
+
+        assertEq(buyer.balance, buyerBalBefore - 1 ether);
+        assertEq(nft.ownerOf(0), buyer);
+    }
+
+    function test_listBatch() public {
+        // Mint 3 NFTs and approve market
         vm.startPrank(producer);
-        uint256 t0 = nft.mint(address(vault), "ipfs://Qm1");
-        uint256 t1 = nft.mint(address(vault), "ipfs://Qm2");
-        uint256 t2 = nft.mint(address(vault), "ipfs://Qm3");
+        nft.mint(producer, "ipfs://Qm1");
+        nft.mint(producer, "ipfs://Qm2");
+        nft.mint(producer, "ipfs://Qm3");
+        nft.setApprovalForAll(address(market), true);
         vm.stopPrank();
 
+        address[] memory nfts = new address[](3);
+        nfts[0] = address(nft);
+        nfts[1] = address(nft);
+        nfts[2] = address(nft);
+
         uint256[] memory tokenIds = new uint256[](3);
-        tokenIds[0] = t0;
-        tokenIds[1] = t1;
-        tokenIds[2] = t2;
+        tokenIds[0] = 0;
+        tokenIds[1] = 1;
+        tokenIds[2] = 2;
 
         uint256[] memory prices = new uint256[](3);
         prices[0] = 1 ether;
@@ -88,392 +204,218 @@ contract NFTMarketTest is Test {
         prices[2] = 3 ether;
 
         vm.prank(producer);
-        vault.setPriceBatch(tokenIds, prices);
+        uint256[] memory listingIds = market.listBatch(nfts, tokenIds, prices);
 
-        assertEq(vault.tokenPrice(t0), 1 ether);
-        assertEq(vault.tokenPrice(t1), 2 ether);
-        assertEq(vault.tokenPrice(t2), 3 ether);
+        assertEq(listingIds.length, 3);
+        assertEq(market.availableCount(), 3);
     }
 
-    function test_purchase() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
+    function test_listAvailable() public {
+        _mintAndList(1 ether);
+        _mintAndList(2 ether);
+        _mintAndList(3 ether);
 
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
-
-        vm.prank(buyer);
-        vault.purchase{value: 1 ether}(tokenId, 0);
-
-        assertEq(nft.ownerOf(tokenId), buyer);
-
-        // Funds pushed directly to beneficiaries via registry
-        assertEq(artist.balance, 0.5 ether);
-        assertEq(gallery.balance, 0.35 ether);
-        assertEq(droitDeSuite.balance, 0.15 ether);
+        NFTMarket.Listing[] memory available = market.listAvailable(0, 10);
+        assertEq(available.length, 3);
+        assertEq(available[0].price, 1 ether);
+        assertEq(available[1].price, 2 ether);
+        assertEq(available[2].price, 3 ether);
     }
 
-    function test_purchase_insufficientPayment() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
+    function test_listAvailable_paginated() public {
+        _mintAndList(1 ether);
+        _mintAndList(2 ether);
+        _mintAndList(3 ether);
+        _mintAndList(4 ether);
+        _mintAndList(5 ether);
 
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
+        // offset=0, limit=2
+        NFTMarket.Listing[] memory page1 = market.listAvailable(0, 2);
+        assertEq(page1.length, 2);
+        assertEq(page1[0].price, 1 ether);
+        assertEq(page1[1].price, 2 ether);
 
-        vm.prank(buyer);
-        vm.expectRevert(NFTMarket.InsufficientPayment.selector);
-        vault.purchase{value: 0.5 ether}(tokenId, 0);
-    }
+        // offset=2, limit=2
+        NFTMarket.Listing[] memory page2 = market.listAvailable(2, 2);
+        assertEq(page2.length, 2);
+        assertEq(page2[0].price, 3 ether);
+        assertEq(page2[1].price, 4 ether);
 
-    function test_purchase_notInVault() public {
-        // Mint to buyer directly — setPrice should revert since token not in vault
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(buyer, "ipfs://QmTest");
-
-        vm.prank(producer);
-        vm.expectRevert(NFTMarket.NotInVault.selector);
-        vault.setPrice(tokenId, 1 ether);
-    }
-
-    function test_purchase_priceNotSet() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(buyer);
-        vm.expectRevert(NFTMarket.PriceNotSet.selector);
-        vault.purchase{value: 1 ether}(tokenId, 0);
-    }
-
-    function test_purchase_overpaymentRefund() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
-
-        uint256 buyerBalBefore = buyer.balance;
-
-        vm.prank(buyer);
-        vault.purchase{value: 3 ether}(tokenId, 0);
-
-        assertEq(buyer.balance, buyerBalBefore - 1 ether);
-        assertEq(nft.ownerOf(tokenId), buyer);
-    }
-
-    function test_listAvailableTokens() public {
-        vm.startPrank(producer);
-        nft.mint(address(vault), "ipfs://Qm1");
-        nft.mint(address(vault), "ipfs://Qm2");
-        nft.mint(address(vault), "ipfs://Qm3");
-
-        vault.setPrice(0, 1 ether);
-        vault.setPrice(1, 2 ether);
-        vm.stopPrank();
-
-        (uint256[] memory tokenIds, uint256[] memory prices) = vault.listAvailableTokens();
-        assertEq(tokenIds.length, 3);
-        assertEq(prices[0], 1 ether);
-        assertEq(prices[1], 2 ether);
-        assertEq(prices[2], 0);
+        // offset past end
+        NFTMarket.Listing[] memory page3 = market.listAvailable(10, 5);
+        assertEq(page3.length, 0);
     }
 
     function test_availableCount() public {
-        assertEq(vault.availableCount(), 0);
+        assertEq(market.availableCount(), 0);
 
+        _mintAndList(1 ether);
+        assertEq(market.availableCount(), 1);
+
+        _mintAndList(2 ether);
+        assertEq(market.availableCount(), 2);
+
+        // Purchase one
+        vm.prank(buyer);
+        market.purchase{value: 1 ether}(0);
+        assertEq(market.availableCount(), 1);
+    }
+
+    function test_multiCollection() public {
+        // Create a second NFT collection
+        CollectionNFT nft2 = new CollectionNFT("Second Art", "SART", address(splitter), 500, producer, "https://example.com/col2", address(0));
+
+        // Mint from both collections and list on same market
         vm.startPrank(producer);
-        nft.mint(address(vault), "ipfs://Qm1");
-        assertEq(vault.availableCount(), 1);
+        nft.mint(producer, "ipfs://col1-1");
+        nft2.mint(producer, "ipfs://col2-1");
 
-        nft.mint(address(vault), "ipfs://Qm2");
-        assertEq(vault.availableCount(), 2);
+        nft.approve(address(market), 0);
+        nft2.approve(address(market), 0);
+
+        market.list(address(nft), 0, 1 ether);
+        market.list(address(nft2), 0, 2 ether);
         vm.stopPrank();
 
-        vm.prank(producer);
-        vault.setPrice(0, 1 ether);
+        assertEq(market.availableCount(), 2);
 
+        // Buy from collection 2
         vm.prank(buyer);
-        vault.purchase{value: 1 ether}(0, 0);
-        assertEq(vault.availableCount(), 1);
+        market.purchase{value: 2 ether}(1);
+        assertEq(nft2.ownerOf(0), buyer);
+        assertEq(market.availableCount(), 1);
     }
 
-    function test_purchase_clearsPriceAfterSale() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
-
-        vm.prank(buyer);
-        vault.purchase{value: 1 ether}(tokenId, 0);
-
-        // Price should be cleared after purchase
-        assertEq(vault.tokenPrice(tokenId), 0);
-    }
-
-    // Test maxPrice edge cases — price exceeds max
-    function test_purchase_revert_priceExceedsMax() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 2 ether);
-
-        vm.prank(buyer);
-        vm.expectRevert(NFTMarket.PriceExceedsMax.selector);
-        vault.purchase{value: 2 ether}(tokenId, 1 ether); // maxPrice < actual price
-    }
-
-    // Test maxPrice edge case — price equals max (should succeed)
-    function test_purchase_priceEqualsMax() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
-
-        vm.prank(buyer);
-        vault.purchase{value: 1 ether}(tokenId, 1 ether); // maxPrice == price, should succeed
-        assertEq(nft.ownerOf(tokenId), buyer);
-    }
-
-    // Test maxPrice edge case — maxPrice=0 means no limit
-    function test_purchase_maxPriceZero_noLimit() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 5 ether);
-
-        vm.prank(buyer);
-        vault.purchase{value: 5 ether}(tokenId, 0); // maxPrice=0 = no limit
-        assertEq(nft.ownerOf(tokenId), buyer);
-    }
-
-    // claimRefund with no pending refunds should revert
     function test_claimRefund_nothingToRefund() public {
         vm.prank(buyer);
         vm.expectRevert(NFTMarket.NothingToRefund.selector);
-        vault.claimRefund();
+        market.claimRefund();
     }
 
-    // claimRefund emits RefundClaimed event
     function test_claimRefund_emitsEvent() public {
-        // Create a scenario where a refund gets stored in pendingRefunds.
-        // We need a buyer whose refund transfer fails. Use a contract that rejects ETH.
         RejectEther rejecter = new RejectEther();
         vm.deal(address(rejecter), 10 ether);
 
-        // Mint, set price, purchase with overpayment from a contract that rejects refunds
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
+        _mintAndList(1 ether);
 
-        // Purchase from the rejecter — overpayment refund will fail, stored in pendingRefunds
+        // Purchase from rejecter — overpayment refund will fail
         vm.prank(address(rejecter));
-        vault.purchase{value: 3 ether}(tokenId, 0);
+        market.purchase{value: 3 ether}(0);
 
-        // Verify pending refund exists
-        assertEq(vault.pendingRefunds(address(rejecter)), 2 ether);
+        assertEq(market.pendingRefunds(address(rejecter)), 2 ether);
 
-        // Now the rejecter enables receiving and claims the refund
+        // Now enable receiving and claim
         rejecter.setAccept(true);
 
         vm.prank(address(rejecter));
         vm.expectEmit(true, false, false, true);
         emit NFTMarket.RefundClaimed(address(rejecter), 2 ether);
-        vault.claimRefund();
+        market.claimRefund();
 
-        assertEq(vault.pendingRefunds(address(rejecter)), 0);
+        assertEq(market.pendingRefunds(address(rejecter)), 0);
     }
 
-    // rescueETH success — send ETH to vault, rescue it, verify balance and event
     function test_rescueETH_success() public {
-        // Send 5 ETH directly to the vault (simulating selfdestruct or stuck funds)
-        vm.deal(address(vault), 5 ether);
-        assertEq(address(vault).balance, 5 ether);
+        vm.deal(address(market), 5 ether);
 
         address payable recipient = payable(makeAddr("rescueRecipient"));
-        assertEq(recipient.balance, 0);
 
         vm.prank(producer);
         vm.expectEmit(true, false, false, true);
         emit NFTMarket.ETHRescued(recipient, 5 ether);
-        vault.rescueETH(recipient);
+        market.rescueETH(recipient);
 
-        assertEq(address(vault).balance, 0);
+        assertEq(address(market).balance, 0);
         assertEq(recipient.balance, 5 ether);
     }
 
-    // rescueETH when balance is 0 should revert with NothingToRescue
     function test_rescueETH_nothingToRescue() public {
-        assertEq(address(vault).balance, 0);
-
         address payable recipient = payable(makeAddr("rescueRecipient"));
 
         vm.prank(producer);
         vm.expectRevert(NFTMarket.NothingToRescue.selector);
-        vault.rescueETH(recipient);
+        market.rescueETH(recipient);
     }
 
-    // rescueETH from non-owner should revert with OnlyOwner
     function test_rescueETH_onlyOwner() public {
-        vm.deal(address(vault), 1 ether);
-
+        vm.deal(address(market), 1 ether);
         address payable recipient = payable(makeAddr("rescueRecipient"));
 
         vm.prank(buyer);
         vm.expectRevert(NFTMarket.OnlyOwner.selector);
-        vault.rescueETH(recipient);
+        market.rescueETH(recipient);
     }
 
-    // setPriceBatch with 101 items should revert
-    function test_setPriceBatch_tooLarge() public {
-        // Mint 101 tokens to vault (in two batches)
-        string[] memory uris100 = new string[](100);
-        for (uint256 i = 0; i < 100; i++) {
-            uris100[i] = "ipfs://QmTest";
-        }
-        vm.prank(producer);
-        nft.mintBatch(address(vault), uris100);
-
-        string[] memory uris1 = new string[](1);
-        uris1[0] = "ipfs://QmTest";
-        vm.prank(producer);
-        nft.mintBatch(address(vault), uris1);
-
-        uint256[] memory tokenIds = new uint256[](101);
-        uint256[] memory prices = new uint256[](101);
-        for (uint256 i = 0; i < 101; i++) {
-            tokenIds[i] = i;
-            prices[i] = 1 ether;
-        }
-
-        vm.prank(producer);
-        vm.expectRevert("Batch too large");
-        vault.setPriceBatch(tokenIds, prices);
-    }
-
-    // listAvailableTokens paginated — test offset/limit behavior
-    function test_listAvailableTokens_paginated() public {
-        // Mint 5 tokens to vault
-        vm.startPrank(producer);
-        for (uint256 i = 0; i < 5; i++) {
-            nft.mint(address(vault), "ipfs://QmTest");
-        }
-        vm.stopPrank();
-
-        // offset=0, limit=2 → returns first 2
-        (uint256[] memory ids1, uint256[] memory prices1) = vault.listAvailableTokens(0, 2);
-        assertEq(ids1.length, 2);
-        assertEq(ids1[0], 0);
-        assertEq(ids1[1], 1);
-
-        // offset=2, limit=2 → returns next 2
-        (uint256[] memory ids2, uint256[] memory prices2) = vault.listAvailableTokens(2, 2);
-        assertEq(ids2.length, 2);
-        assertEq(ids2[0], 2);
-        assertEq(ids2[1], 3);
-
-        // offset=10, limit=5 → past end, returns empty
-        (uint256[] memory ids3, uint256[] memory prices3) = vault.listAvailableTokens(10, 5);
-        assertEq(ids3.length, 0);
-    }
-
-    // claimRefund accumulation — multiple overpayments, single claimRefund
-    function test_claimRefund_accumulation() public {
-        RejectEther rejecter = new RejectEther();
-        vm.deal(address(rejecter), 100 ether);
-
-        // Mint 2 tokens and set prices
-        vm.startPrank(producer);
-        uint256 t0 = nft.mint(address(vault), "ipfs://Qm1");
-        uint256 t1 = nft.mint(address(vault), "ipfs://Qm2");
-        vault.setPrice(t0, 1 ether);
-        vault.setPrice(t1, 2 ether);
-        vm.stopPrank();
-
-        // First overpayment: pay 3 ETH for 1 ETH token → 2 ETH excess
-        vm.prank(address(rejecter));
-        vault.purchase{value: 3 ether}(t0, 0);
-        assertEq(vault.pendingRefunds(address(rejecter)), 2 ether);
-
-        // Second overpayment: pay 5 ETH for 2 ETH token → 3 ETH excess
-        vm.prank(address(rejecter));
-        vault.purchase{value: 5 ether}(t1, 0);
-        // Should accumulate: 2 + 3 = 5 ETH
-        assertEq(vault.pendingRefunds(address(rejecter)), 5 ether);
-
-        // Enable receiving and claim all at once
-        rejecter.setAccept(true);
-        uint256 balBefore = address(rejecter).balance;
-        vm.prank(address(rejecter));
-        vault.claimRefund();
-
-        assertEq(vault.pendingRefunds(address(rejecter)), 0);
-        assertEq(address(rejecter).balance, balBefore + 5 ether);
-    }
-
-    // rescueETH must not drain buyer pendingRefunds
     function test_rescueETH_cannotDrainPendingRefunds() public {
         RejectEther rejecter = new RejectEther();
         vm.deal(address(rejecter), 100 ether);
 
-        // Mint token, set price, purchase with overpayment from contract that rejects refunds
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmTest");
-        vm.prank(producer);
-        vault.setPrice(tokenId, 1 ether);
+        _mintAndList(1 ether);
 
-        // Purchase: 3 ETH sent, 1 ETH price → 2 ETH excess stored in pendingRefunds
+        // Purchase with overpayment from contract that rejects refunds
         vm.prank(address(rejecter));
-        vault.purchase{value: 3 ether}(tokenId, 0);
-        assertEq(vault.pendingRefunds(address(rejecter)), 2 ether);
-        assertEq(vault.totalPendingRefunds(), 2 ether);
+        market.purchase{value: 3 ether}(0);
+        assertEq(market.pendingRefunds(address(rejecter)), 2 ether);
+        assertEq(market.totalPendingRefunds(), 2 ether);
 
-        // Vault balance should be exactly 2 ETH (the pending refund)
-        assertEq(address(vault).balance, 2 ether);
+        // Market balance = 2 ETH (pending refund)
+        assertEq(address(market).balance, 2 ether);
 
-        // rescueETH should revert — all balance is pending refunds, nothing to rescue
+        // rescueETH should revert — all balance is pending refunds
         address payable recipient = payable(makeAddr("rescueRecipient"));
         vm.prank(producer);
         vm.expectRevert(NFTMarket.NothingToRescue.selector);
-        vault.rescueETH(recipient);
+        market.rescueETH(recipient);
 
-        // Send extra ETH to vault (simulating selfdestruct or stuck funds)
-        vm.deal(address(vault), 5 ether); // 5 ETH total, but 2 ETH reserved
+        // Send extra ETH
+        vm.deal(address(market), 5 ether);
 
-        // rescueETH should only rescue the non-reserved portion (5 - 2 = 3 ETH)
+        // Should only rescue non-reserved portion (5 - 2 = 3 ETH)
         vm.prank(producer);
-        vault.rescueETH(recipient);
+        market.rescueETH(recipient);
         assertEq(recipient.balance, 3 ether);
+        assertEq(address(market).balance, 2 ether);
 
-        // Vault should still have 2 ETH reserved for the pending refund
-        assertEq(address(vault).balance, 2 ether);
-
-        // Buyer can still claim their refund
+        // Buyer can still claim
         rejecter.setAccept(true);
         vm.prank(address(rejecter));
-        vault.claimRefund();
-        assertEq(vault.pendingRefunds(address(rejecter)), 0);
-        assertEq(vault.totalPendingRefunds(), 0);
+        market.claimRefund();
+        assertEq(market.totalPendingRefunds(), 0);
     }
 
     function test_fullPurchaseFlow() public {
-        vm.prank(producer);
-        uint256 tokenId = nft.mint(address(vault), "ipfs://QmArtwork");
-
-        vm.prank(producer);
-        vault.setPrice(tokenId, 10 ether);
+        _mintAndList(10 ether);
 
         vm.prank(buyer);
-        vault.purchase{value: 10 ether}(tokenId, 0);
-        assertEq(nft.ownerOf(tokenId), buyer);
+        market.purchase{value: 10 ether}(0);
+        assertEq(nft.ownerOf(0), buyer);
 
-        // Funds pushed directly to beneficiaries via registry: 50%, 35%, 15%
+        // Funds pushed to beneficiaries: 50%, 35%, 15%
         assertEq(artist.balance, 5 ether);
         assertEq(gallery.balance, 3.5 ether);
         assertEq(droitDeSuite.balance, 1.5 ether);
+    }
+
+    function test_minterCanList() public {
+        vm.prank(producer);
+        nft.mint(minter, "ipfs://QmTest");
+
+        vm.startPrank(minter);
+        nft.approve(address(market), 0);
+        market.list(address(nft), 0, 1 ether);
+        vm.stopPrank();
+
+        assertEq(market.availableCount(), 1);
+    }
+
+    function test_minterCanSetPrice() public {
+        _mintAndList(1 ether);
+
+        vm.prank(minter);
+        market.setPrice(0, 5 ether);
+
+        (,, uint256 price,,) = market.listings(0);
+        assertEq(price, 5 ether);
     }
 }
 

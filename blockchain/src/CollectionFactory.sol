@@ -3,20 +3,17 @@ pragma solidity ^0.8.22;
 
 import "./ArtistsSplitter.sol";
 import "./CollectionNFT.sol";
-import "./NFTMarket.sol";
 
 /**
  * @title CollectionFactory
- * @notice Factory that deploys CollectionNFT + ArtistsSplitter + NFTMarket in one transaction
- * @dev The `minter` role allows a backend wallet to mint on behalf of the owner.
- *      The owner retains full ownership and can revoke the minter at any time.
+ * @notice Factory that deploys CollectionNFT + ArtistsSplitter in one transaction
+ * @dev NFTs are minted to the owner. The owner lists them on an NFTMarket separately.
  */
 contract CollectionFactory {
 
     struct Collection {
         address nft;
         address splitter;
-        address vault;
         address owner;
         uint256 createdAt;
     }
@@ -25,6 +22,10 @@ contract CollectionFactory {
     error ZeroRegistry();
     error NotOwner();
     error RoyaltyTooHigh();
+    error RegistryNotAuthorized();
+
+    address public owner;
+    address public authorizedRegistry;
 
     Collection[] public collections;
 
@@ -34,15 +35,28 @@ contract CollectionFactory {
         uint256 indexed index,
         address nft,
         address splitter,
-        address vault,
         address owner,
         string name,
         string symbol
     );
 
-    /// @notice Deploy a paired NFT + Splitter + Market
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    /// @notice Set the authorized registry address. address(0) means any registry is allowed (backwards compat).
+    function setAuthorizedRegistry(address _registry) external onlyOwner {
+        authorizedRegistry = _registry;
+    }
+
+    /// @notice Deploy a paired NFT + Splitter
     /// @param owner The creator who will OWN the contracts
-    /// @param minter A backend wallet authorized to mint (can be revoked by owner)
+    /// @param minterAddr Backend wallet that can mint NFTs (address(0) = no minter)
     function createCollection(
         string calldata name,
         string calldata symbol,
@@ -51,12 +65,12 @@ contract CollectionFactory {
         uint256[] calldata shares,
         uint96 royaltyBps,
         string calldata contractURI,
-        address minter,
-        address registry
-    ) external returns (uint256 index, address nftAddr, address splitterAddr, address vaultAddr) {
+        address registry,
+        address minterAddr
+    ) external returns (uint256 index, address nftAddr, address splitterAddr) {
         if (owner == address(0)) revert ZeroOwner();
         if (registry == address(0)) revert ZeroRegistry();
-        if (msg.sender != owner) revert NotOwner();
+        if (authorizedRegistry != address(0) && registry != authorizedRegistry) revert RegistryNotAuthorized();
         if (royaltyBps > 10000) revert RoyaltyTooHigh();
 
         // Deploy splitter first
@@ -67,7 +81,7 @@ contract CollectionFactory {
             registry
         );
 
-        // Deploy NFT pointing to splitter, owner is owner, minter can mint
+        // Deploy NFT pointing to splitter, owner is owner, minter set at deploy time
         CollectionNFT nft = new CollectionNFT(
             name,
             symbol,
@@ -75,31 +89,22 @@ contract CollectionFactory {
             royaltyBps,
             owner,
             contractURI,
-            minter
-        );
-
-        // Deploy market pointing to NFT and splitter
-        NFTMarket vault = new NFTMarket(
-            address(nft),
-            payable(address(splitter)),
-            owner,
-            minter
+            minterAddr
         );
 
         index = collections.length;
         collections.push(Collection({
             nft: address(nft),
             splitter: address(splitter),
-            vault: address(vault),
             owner: owner,
             createdAt: block.timestamp
         }));
 
         ownerCollections[owner].push(index);
 
-        emit CollectionCreated(index, address(nft), address(splitter), address(vault), owner, name, symbol);
+        emit CollectionCreated(index, address(nft), address(splitter), owner, name, symbol);
 
-        return (index, address(nft), address(splitter), address(vault));
+        return (index, address(nft), address(splitter));
     }
 
     /// @notice Get total number of deployed collections

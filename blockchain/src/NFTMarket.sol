@@ -2,24 +2,36 @@
 pragma solidity ^0.8.22;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+
+interface ICollectionNFT {
+    function splitter() external view returns (address);
+}
 
 /**
  * @title NFTMarket
- * @notice Per-collection market that holds minted NFTs and orchestrates primary sales
- * @dev NFTs are minted into this market. Buyers call purchase() to buy at fixed price.
- *      100% of primary sale goes to ArtistsSplitter for distribution among beneficiaries.
+ * @notice Multi-collection marketplace for primary NFT sales
+ * @dev Holds NFTs from any ERC-721 collection. At purchase time, reads the splitter
+ *      address from the NFT contract and sends funds there for distribution.
  */
 contract NFTMarket is ReentrancyGuard, IERC721Receiver {
 
-    IERC721Enumerable public nftContract;
-    address payable public splitter;
+    struct Listing {
+        address nftContract;
+        uint256 tokenId;
+        uint256 price;
+        address seller;
+        bool active;
+    }
+
     address public owner;
     address public pendingOwner;
     address public minter;
 
-    mapping(uint256 => uint256) public tokenPrice;
+    Listing[] public listings;
+    /// @notice Fast lookup: keccak256(nftContract, tokenId) => listingId + 1 (0 = not listed)
+    mapping(bytes32 => uint256) public listingIndex;
 
     /// @notice Pending refunds for buyers whose overpayment refund failed
     mapping(address => uint256) public pendingRefunds;
@@ -29,12 +41,9 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
 
     error OnlyOwner();
     error NotAuthorized();
-    error NotInVault();
     error InsufficientPayment();
     error PriceCannotBeZero();
-    error PriceNotSet();
     error PaymentFailed();
-    error PriceExceedsMax();
     error LengthMismatch();
     error ZeroAddress();
     error NotPendingOwner();
@@ -42,17 +51,22 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
     error RefundClaimFailed();
     error NothingToRescue();
     error RescueFailed();
-
-    event PriceSet(uint256 indexed tokenId, uint256 price);
-    event NFTPurchased(uint256 indexed tokenId, address indexed buyer, uint256 price);
+    error ListingNotActive();
+    error AlreadyListed();
+    error BatchTooLarge();
+    error EmptyArray();
+    error NotNFTOwner();
+    error NoSplitter();
+    event Listed(uint256 indexed listingId, address indexed nftContract, uint256 indexed tokenId, uint256 price, address seller);
+    event Delisted(uint256 indexed listingId);
+    event PriceUpdated(uint256 indexed listingId, uint256 newPrice);
+    event NFTPurchased(uint256 indexed listingId, address indexed buyer, uint256 price);
     event MinterUpdated(address indexed newMinter);
-    event NFTWithdrawn(uint256 indexed tokenId, address indexed to);
     event OwnerTransferStarted(address indexed previousOwner, address indexed newOwner);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
-    event RefundFailed(address indexed buyer, uint256 indexed tokenId, uint256 amount);
+    event RefundFailed(address indexed buyer, uint256 indexed listingId, uint256 amount);
     event RefundClaimed(address indexed buyer, uint256 amount);
     event ETHRescued(address indexed to, uint256 amount);
-
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
         _;
@@ -63,22 +77,20 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
         _;
     }
 
-    constructor(address _nftContract, address payable _splitter, address _owner, address _minter) {
-        if (_nftContract == address(0) || _splitter == address(0) || _owner == address(0)) revert ZeroAddress();
-        nftContract = IERC721Enumerable(_nftContract);
-        splitter = _splitter;
+    constructor(address _owner, address _minter) {
+        if (_owner == address(0)) revert ZeroAddress();
         owner = _owner;
         minter = _minter;
     }
 
-    /// @notice Initiate ownership transfer (two-step)
+    // ── Ownership ──────────────────────────────────────────────
+
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
         pendingOwner = newOwner;
         emit OwnerTransferStarted(owner, newOwner);
     }
 
-    /// @notice Accept ownership transfer
     function acceptOwnership() external {
         if (msg.sender != pendingOwner) revert NotPendingOwner();
         address oldOwner = owner;
@@ -87,122 +99,187 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
         emit OwnerTransferred(oldOwner, owner);
     }
 
-    /// @notice Owner withdraws an NFT from the market
-    function withdrawNFT(uint256 tokenId) external onlyOwner {
-        if (nftContract.ownerOf(tokenId) != address(this)) revert NotInVault();
-        tokenPrice[tokenId] = 0;
-        nftContract.safeTransferFrom(address(this), owner, tokenId);
-        emit NFTWithdrawn(tokenId, owner);
-    }
-
-    /// @notice Owner can update the minter role
     function setMinter(address _minter) external onlyOwner {
         if (_minter == address(0)) revert ZeroAddress();
         minter = _minter;
         emit MinterUpdated(_minter);
     }
 
-    /// @notice Owner can revoke the minter role
     function revokeMinter() external onlyOwner {
         minter = address(0);
         emit MinterUpdated(address(0));
     }
 
-    /// @notice Set price for a token held by market
-    function setPrice(uint256 tokenId, uint256 price) external onlyOwnerOrMinter {
-        if (price == 0) revert PriceCannotBeZero();
-        if (nftContract.ownerOf(tokenId) != address(this)) revert NotInVault();
-        tokenPrice[tokenId] = price;
-        emit PriceSet(tokenId, price);
+    // ── Listing ────────────────────────────────────────────────
+
+    /// @notice List an NFT for sale. Transfers the NFT to this contract.
+    function list(address nft, uint256 tokenId, uint256 price) external onlyOwnerOrMinter returns (uint256 listingId) {
+        listingId = _list(nft, tokenId, price, msg.sender);
     }
 
-    /// @notice Set prices for multiple tokens at once
-    /// @dev Maximum 100 items per batch call.
-    function setPriceBatch(uint256[] calldata tokenIds, uint256[] calldata prices) external onlyOwnerOrMinter {
-        require(tokenIds.length <= 100, "Batch too large");
-        if (tokenIds.length != prices.length) revert LengthMismatch();
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            if (prices[i] == 0) revert PriceCannotBeZero();
-            if (nftContract.ownerOf(tokenIds[i]) != address(this)) revert NotInVault();
-            tokenPrice[tokenIds[i]] = prices[i];
-            emit PriceSet(tokenIds[i], prices[i]);
+    /// @notice Batch list NFTs (max 100)
+    function listBatch(
+        address[] calldata nfts,
+        uint256[] calldata tokenIds,
+        uint256[] calldata prices
+    ) external onlyOwnerOrMinter returns (uint256[] memory listingIds) {
+        if (nfts.length == 0) revert EmptyArray();
+        if (nfts.length != tokenIds.length || nfts.length != prices.length) revert LengthMismatch();
+        if (nfts.length > 100) revert BatchTooLarge();
+        listingIds = new uint256[](nfts.length);
+        for (uint256 i = 0; i < nfts.length; i++) {
+            listingIds[i] = _list(nfts[i], tokenIds[i], prices[i], msg.sender);
         }
     }
 
-    /// @notice Buy an NFT from the market — 100% goes to Splitter for primary distribution
-    /// @param tokenId The NFT to purchase
-    /// @param maxPrice Maximum acceptable price (slippage protection, 0 = no limit)
-    function purchase(uint256 tokenId, uint256 maxPrice) external payable nonReentrant {
-        // Checks
-        if (nftContract.ownerOf(tokenId) != address(this)) revert NotInVault();
-        uint256 price = tokenPrice[tokenId];
-        if (price == 0) revert PriceNotSet();
-        if (maxPrice != 0 && price > maxPrice) revert PriceExceedsMax();
+    /// @dev Trust assumption: callers (factory-deployed collections) have already approved
+    ///      this market contract to transfer the NFT on the seller's behalf via
+    ///      `IERC721.approve(market, tokenId)` or `setApprovalForAll(market, true)`.
+    ///      If the approval is missing, `safeTransferFrom` will revert.
+    function _list(address nft, uint256 tokenId, uint256 price, address seller) internal returns (uint256 listingId) {
+        if (price == 0) revert PriceCannotBeZero();
+        if (nft == address(0)) revert ZeroAddress();
+
+        bytes32 key = keccak256(abi.encodePacked(nft, tokenId));
+        if (listingIndex[key] != 0) revert AlreadyListed();
+
+        // Verify the seller actually owns the NFT
+        if (IERC721(nft).ownerOf(tokenId) != seller) revert NotNFTOwner();
+
+        // Transfer NFT to this contract (safeTransferFrom ensures ERC721Receiver is implemented)
+        IERC721(nft).safeTransferFrom(seller, address(this), tokenId);
+
+        listingId = listings.length;
+        listings.push(Listing({
+            nftContract: nft,
+            tokenId: tokenId,
+            price: price,
+            seller: seller,
+            active: true
+        }));
+        listingIndex[key] = listingId + 1;
+
+        emit Listed(listingId, nft, tokenId, price, seller);
+    }
+
+    /// @notice Remove a listing and return the NFT to the seller
+    function delist(uint256 listingId) external onlyOwnerOrMinter {
+        Listing storage l = listings[listingId];
+        if (!l.active) revert ListingNotActive();
+
+        l.active = false;
+        bytes32 key = keccak256(abi.encodePacked(l.nftContract, l.tokenId));
+        delete listingIndex[key];
+
+        IERC721(l.nftContract).safeTransferFrom(address(this), l.seller, l.tokenId);
+        emit Delisted(listingId);
+    }
+
+    /// @notice Update the price of a listing
+    function setPrice(uint256 listingId, uint256 price) external onlyOwnerOrMinter {
+        if (price == 0) revert PriceCannotBeZero();
+        Listing storage l = listings[listingId];
+        if (!l.active) revert ListingNotActive();
+        l.price = price;
+        emit PriceUpdated(listingId, price);
+    }
+
+    // ── Purchase ───────────────────────────────────────────────
+
+    /// @notice Buy an NFT — funds go to the collection's splitter
+    function purchase(uint256 listingId) external payable nonReentrant {
+        _purchase(listingId, msg.sender);
+    }
+
+    /// @notice Buy an NFT and send it to a recipient (used by Showroom).
+    /// No caller restriction — msg.value >= price is sufficient protection.
+    function purchaseFor(uint256 listingId, address recipient) external payable nonReentrant {
+        if (recipient == address(0)) revert ZeroAddress();
+        _purchase(listingId, recipient);
+    }
+
+    function _purchase(uint256 listingId, address recipient) internal {
+        Listing storage l = listings[listingId];
+        if (!l.active) revert ListingNotActive();
+        uint256 price = l.price;
         if (msg.value < price) revert InsufficientPayment();
 
-        // Effects: clear price before external calls
-        tokenPrice[tokenId] = 0;
+        // Effects: deactivate listing before external calls
+        l.active = false;
+        bytes32 key = keccak256(abi.encodePacked(l.nftContract, l.tokenId));
+        delete listingIndex[key];
 
-        // Interactions: send payment to splitter, then transfer NFT
-        (bool sent, ) = splitter.call{value: price}("");
+        // Read splitter from the NFT contract
+        address splitter = ICollectionNFT(l.nftContract).splitter();
+        if (splitter == address(0)) revert NoSplitter();
+
+        // Send payment to splitter
+        (bool sent,) = payable(splitter).call{value: price}("");
         if (!sent) revert PaymentFailed();
 
-        nftContract.safeTransferFrom(address(this), msg.sender, tokenId);
-        emit NFTPurchased(tokenId, msg.sender, price);
+        // Transfer NFT to recipient
+        IERC721(l.nftContract).safeTransferFrom(address(this), recipient, l.tokenId);
+        emit NFTPurchased(listingId, recipient, price);
 
-        // Refund overpayment (uses low-level call; if buyer rejects, excess stored in pendingRefunds)
+        // Refund overpayment
         uint256 excess = msg.value - price;
         if (excess > 0) {
             (bool refunded,) = payable(msg.sender).call{value: excess}("");
             if (!refunded) {
                 pendingRefunds[msg.sender] += excess;
                 totalPendingRefunds += excess;
-                emit RefundFailed(msg.sender, tokenId, excess);
+                emit RefundFailed(msg.sender, listingId, excess);
             }
         }
     }
 
-    /// @notice List tokens available for purchase in the market (paginated)
-    /// @param offset Starting index in the market's token list. If offset >= total tokens, returns empty arrays.
-    /// @param limit Maximum number of tokens to return. Capped at 1000 regardless of input value.
-    /// @dev When offset exceeds the total number of tokens held by the market, empty arrays are returned.
-    ///      The effective count is min(limit, remaining, 1000).
-    function listAvailableTokens(uint256 offset, uint256 limit) external view returns (uint256[] memory tokenIds, uint256[] memory prices) {
-        uint256 total = nftContract.balanceOf(address(this));
-        if (offset >= total) {
-            return (new uint256[](0), new uint256[](0));
+    // ── Views ──────────────────────────────────────────────────
+
+    /// @notice Paginated list of active listings
+    function listAvailable(uint256 offset, uint256 limit) external view returns (Listing[] memory result) {
+        // First count active listings
+        uint256 activeCount = 0;
+        for (uint256 i = 0; i < listings.length; i++) {
+            if (listings[i].active) activeCount++;
         }
-        uint256 remaining = total - offset;
+
+        if (offset >= activeCount) {
+            return new Listing[](0);
+        }
+
+        uint256 remaining = activeCount - offset;
         uint256 count = limit < remaining ? limit : remaining;
         if (count > 1000) count = 1000;
-        tokenIds = new uint256[](count);
-        prices = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            uint256 tokenId = nftContract.tokenOfOwnerByIndex(address(this), offset + i);
-            tokenIds[i] = tokenId;
-            prices[i] = tokenPrice[tokenId];
+
+        result = new Listing[](count);
+        uint256 found = 0;
+        uint256 skipped = 0;
+        for (uint256 i = 0; i < listings.length && found < count; i++) {
+            if (listings[i].active) {
+                if (skipped < offset) {
+                    skipped++;
+                } else {
+                    result[found] = listings[i];
+                    found++;
+                }
+            }
         }
     }
 
-    /// @notice List all tokens available for purchase in the market (capped at 1000)
-    function listAvailableTokens() external view returns (uint256[] memory tokenIds, uint256[] memory prices) {
-        uint256 count = nftContract.balanceOf(address(this));
-        if (count > 1000) count = 1000;
-        tokenIds = new uint256[](count);
-        prices = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            uint256 tokenId = nftContract.tokenOfOwnerByIndex(address(this), i);
-            tokenIds[i] = tokenId;
-            prices[i] = tokenPrice[tokenId];
+    /// @notice Number of active listings
+    function availableCount() external view returns (uint256 count) {
+        for (uint256 i = 0; i < listings.length; i++) {
+            if (listings[i].active) count++;
         }
     }
 
-    /// @notice Number of tokens available in market
-    function availableCount() external view returns (uint256) {
-        return nftContract.balanceOf(address(this));
+    /// @notice Total number of listings (including inactive)
+    function listingCount() external view returns (uint256) {
+        return listings.length;
     }
 
-    /// @notice Buyers can claim their pending refunds (from failed overpayment refunds)
+    // ── Refunds & Rescue ───────────────────────────────────────
+
     function claimRefund() external nonReentrant {
         uint256 amount = pendingRefunds[msg.sender];
         if (amount == 0) revert NothingToRefund();
@@ -216,9 +293,6 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
         emit RefundClaimed(msg.sender, amount);
     }
 
-    /// @notice Owner can rescue any ETH stuck in the market (e.g. from selfdestruct sends)
-    /// @dev Only rescues ETH not reserved for pending buyer refunds.
-    /// @param to The address to send rescued ETH to (allows rescue even if owner is a contract without receive())
     function rescueETH(address payable to) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         uint256 rescuable = address(this).balance - totalPendingRefunds;
@@ -228,13 +302,10 @@ contract NFTMarket is ReentrancyGuard, IERC721Receiver {
         emit ETHRescued(to, rescuable);
     }
 
-    /// @notice Required to receive ERC721 tokens — only accepts from the intended NFT collection
-    /// @dev Trust model: the `from` parameter is intentionally ignored. We only check that
-    ///      `msg.sender` is the expected NFT contract. This means anyone can transfer NFTs from
-    ///      this collection into the market, but only the owner can withdraw them or set prices.
-    ///      The market trusts the NFT contract (set at construction) to correctly implement ERC-721.
-    function onERC721Received(address, address, uint256, bytes calldata) external view override returns (bytes4) {
-        if (msg.sender != address(nftContract)) revert NotAuthorized();
+    // ── ERC721 Receiver ────────────────────────────────────────
+
+    /// @notice Accept any ERC721 token
+    function onERC721Received(address, address, uint256, bytes calldata) external pure override returns (bytes4) {
         return IERC721Receiver.onERC721Received.selector;
     }
 }

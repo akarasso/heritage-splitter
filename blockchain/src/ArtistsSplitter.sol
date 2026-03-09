@@ -34,11 +34,14 @@ contract ArtistsSplitter is ReentrancyGuard {
 
     event Received(uint256 amount);
     event Paid(address indexed beneficiary, uint256 amount);
+    event ETHRescued(address indexed to, uint256 amount);
 
     error InvalidShares();
     error NoZeroAddress();
     error LengthMismatch();
     error DuplicateWallet();
+    error NothingToRescue();
+    error RescueFailed();
 
     constructor(
         address _owner,
@@ -58,7 +61,7 @@ contract ArtistsSplitter is ReentrancyGuard {
         for (uint256 i = 0; i < _wallets.length; i++) {
             if (_wallets[i] == address(0)) revert NoZeroAddress();
             require(_shares[i] > 0, "Zero share");
-            // Check for duplicate wallets — O(n^2) but acceptable for N<=20 beneficiaries
+            // Check for duplicate wallets — O(n^2) but acceptable for N<=50 beneficiaries
             for (uint256 j = 0; j < i; j++) {
                 if (_wallets[j] == _wallets[i]) revert DuplicateWallet();
             }
@@ -108,6 +111,17 @@ contract ArtistsSplitter is ReentrancyGuard {
     /// @notice Get beneficiary count
     function beneficiaryCount() external view returns (uint256) {
         return beneficiaries.length;
+    }
+
+    /// @notice Rescue any ETH stuck in the contract
+    function rescueETH(address payable to) external {
+        require(msg.sender == owner, "Only owner");
+        if (to == address(0)) revert NoZeroAddress();
+        uint256 rescuable = address(this).balance;
+        if (rescuable == 0) revert NothingToRescue();
+        (bool ok,) = to.call{value: rescuable}("");
+        if (!ok) revert RescueFailed();
+        emit ETHRescued(to, rescuable);
     }
 
 }

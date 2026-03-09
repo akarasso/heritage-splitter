@@ -26,7 +26,7 @@ contract PaymentRegistryV2 is Initializable, ReentrancyGuard {
     address public owner;
     address public pendingOwner;
     mapping(address => uint256) public pendingWithdrawals;
-    mapping(address => address) public redirects;
+    mapping(address => address) private __deprecated_redirects; // preserved for storage compat
     uint256 public version;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -157,136 +157,6 @@ contract PaymentRegistryTest is Test {
         assertEq(address(receiver).balance - balBefore, 5 ether);
     }
 
-    // ── Redirect tests ──────────────────────────────────────────────
-
-    function test_setRedirect_onlyOwner() public {
-        vm.prank(alice);
-        vm.expectRevert(PaymentRegistry.NotOwner.selector);
-        registry.setRedirect(alice, bob);
-    }
-
-    function test_setRedirect_noSelfRedirect() public {
-        vm.prank(owner);
-        vm.expectRevert(PaymentRegistry.NoSelfRedirect.selector);
-        registry.setRedirect(alice, alice);
-    }
-
-    function test_setRedirect_migratesPendingFunds() public {
-        GasHungryReceiver receiver = new GasHungryReceiver(registry);
-        registry.pay{value: 3 ether}(address(receiver));
-        assertEq(registry.pendingWithdrawals(address(receiver)), 3 ether);
-
-        // Redirect: pending funds move to bob
-        vm.prank(owner);
-        registry.setRedirect(address(receiver), bob);
-
-        assertEq(registry.pendingWithdrawals(address(receiver)), 0);
-        assertEq(registry.pendingWithdrawals(bob), 3 ether);
-    }
-
-    function test_setRedirect_futurePaymentsGoToNewAddress() public {
-        // Set redirect alice → bob
-        vm.prank(owner);
-        registry.setRedirect(alice, bob);
-
-        // Pay alice — funds should go to bob via push
-        uint256 bobBefore = bob.balance;
-        registry.pay{value: 1 ether}(alice);
-        assertEq(bob.balance - bobBefore, 1 ether);
-        assertEq(registry.pendingWithdrawals(bob), 0);
-    }
-
-    function test_setRedirect_newBeneficiaryCanWithdraw() public {
-        GasHungryReceiver receiver = new GasHungryReceiver(registry);
-        registry.pay{value: 2 ether}(address(receiver));
-
-        // Redirect to alice (EOA)
-        vm.prank(owner);
-        registry.setRedirect(address(receiver), alice);
-
-        // Alice withdraws the migrated funds
-        uint256 aliceBefore = alice.balance;
-        vm.prank(alice);
-        registry.withdraw();
-        assertEq(alice.balance - aliceBefore, 2 ether);
-    }
-
-    function test_setRedirect_removeRedirect() public {
-        vm.prank(owner);
-        registry.setRedirect(alice, bob);
-        vm.prank(owner);
-        registry.setRedirect(alice, address(0));
-
-        // Pay alice — should go directly to alice again
-        uint256 aliceBefore = alice.balance;
-        registry.pay{value: 1 ether}(alice);
-        assertEq(alice.balance - aliceBefore, 1 ether);
-    }
-
-    function test_setRedirect_accumulatesWithExisting() public {
-        GasHungryReceiver receiverBob = new GasHungryReceiver(registry);
-        registry.pay{value: 1 ether}(address(receiverBob));
-
-        GasHungryReceiver receiverOld = new GasHungryReceiver(registry);
-        registry.pay{value: 2 ether}(address(receiverOld));
-
-        // Redirect old → receiverBob
-        vm.prank(owner);
-        registry.setRedirect(address(receiverOld), address(receiverBob));
-
-        assertEq(registry.pendingWithdrawals(address(receiverBob)), 3 ether);
-        assertEq(registry.pendingWithdrawals(address(receiverOld)), 0);
-    }
-
-    // ── Flatten & single-level tests ────────────────────────────────
-
-    function test_setRedirect_flattenOnWrite() public {
-        address charlie = makeAddr("charlie");
-
-        // Set bob → charlie, then set alice → bob
-        // alice should be flattened to alice → charlie (skipping bob)
-        vm.prank(owner);
-        registry.setRedirect(bob, charlie);
-        vm.prank(owner);
-        registry.setRedirect(alice, bob);
-
-        // Verify alice points directly to charlie
-        assertEq(registry.redirects(alice), charlie);
-
-        // Pay alice — should go to charlie directly
-        uint256 charlieBefore = charlie.balance;
-        registry.pay{value: 1 ether}(alice);
-        assertEq(charlie.balance - charlieBefore, 1 ether);
-    }
-
-    function test_setRedirect_chainResolution() public {
-        // With chain resolution (max 5 hops), pay(A) follows A → B → C
-        address charlie = makeAddr("charlie");
-
-        vm.prank(owner);
-        registry.setRedirect(alice, bob);
-        vm.prank(owner);
-        registry.setRedirect(bob, charlie);
-
-        // pay(alice) follows chain: alice → bob → charlie
-        uint256 charlieBefore = charlie.balance;
-        registry.pay{value: 1 ether}(alice);
-        assertEq(charlie.balance - charlieBefore, 1 ether);
-    }
-
-    function test_setRedirect_flattenPreventsStaleChain() public {
-        address charlie = makeAddr("charlie");
-
-        // If bob → charlie exists and we set alice → bob,
-        // alice is flattened to → charlie
-        vm.prank(owner);
-        registry.setRedirect(bob, charlie);
-        vm.prank(owner);
-        registry.setRedirect(alice, bob);
-
-        // Even if bob's redirect changes later, alice still points to charlie
-        assertEq(registry.redirects(alice), charlie);
-    }
 }
 
 /// @dev Contract that needs more than 2300 gas to receive ETH (has storage write in receive)

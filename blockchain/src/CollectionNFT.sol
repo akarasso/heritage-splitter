@@ -29,6 +29,7 @@ contract CollectionNFT is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Roya
     error NotTokenOwner();
     error NotAuthorized();
     error ZeroAddress();
+    error EmptyArray();
 
     // Events
     event Minted(uint256 indexed tokenId, address indexed to, string uri);
@@ -86,6 +87,7 @@ contract CollectionNFT is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Roya
     /// @notice Mint a batch of NFTs
     /// @dev Maximum 100 items per batch call.
     function mintBatch(address to, string[] calldata uris) external onlyOwnerOrMinter returns (uint256[] memory) {
+        if (uris.length == 0) revert EmptyArray();
         require(uris.length <= 100, "Batch too large");
         uint256[] memory tokenIds = new uint256[](uris.length);
         uint256 startId = _nextTokenId;
@@ -112,6 +114,7 @@ contract CollectionNFT is ERC721, ERC721Enumerable, ERC721URIStorage, ERC721Roya
     /// @notice Burn multiple tokens — only the token owner can burn each token
     /// @dev Maximum 100 items per batch call.
     function burnBatch(uint256[] calldata tokenIds) external {
+        if (tokenIds.length == 0) revert EmptyArray();
         require(tokenIds.length <= 100, "Batch too large");
         for (uint256 i = 0; i < tokenIds.length; i++) {
             if (ownerOf(tokenIds[i]) != msg.sender) revert NotTokenOwner();
