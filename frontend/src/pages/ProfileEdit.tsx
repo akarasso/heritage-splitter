@@ -12,8 +12,6 @@ export default function ProfileEdit() {
   const [displayName, setDisplayName] = createSignal("");
   const [bio, setBio] = createSignal("");
   const [avatarUrl, setAvatarUrl] = createSignal("");
-  const [role, setRole] = createSignal<"artist" | "producer">("artist");
-  const [artistNumber, setArtistNumber] = createSignal("");
   const [avatarPreview, setAvatarPreview] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [uploadingAvatar, setUploadingAvatar] = createSignal(false);
@@ -25,9 +23,6 @@ export default function ProfileEdit() {
       setBio(user()!.bio);
       setAvatarUrl(sanitizeImageUrl(user()!.avatar_url));
       setAvatarPreview(sanitizeImageUrl(user()!.avatar_url));
-      const userRole = user()!.role;
-      if (userRole === "artist" || userRole === "producer") setRole(userRole);
-      setArtistNumber(user()!.artist_number || "");
     }
   });
 
@@ -55,8 +50,6 @@ export default function ProfileEdit() {
         display_name: displayName(),
         bio: bio(),
         avatar_url: avatarUrl(),
-        role: role(),
-        artist_number: artistNumber(),
       });
       await refreshUser();
       navigate("/dashboard");
@@ -120,37 +113,6 @@ export default function ProfileEdit() {
           </div>
         </div>
 
-        {/* Role selection */}
-        <div>
-          <label class="label">Role *</label>
-          <div class="grid grid-cols-2 gap-3 mt-1">
-            <button
-              type="button"
-              class="p-3 rounded-xl text-center transition-all"
-              style={{
-                background: role() === "artist" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
-                border: `2px solid ${role() === "artist" ? "var(--gold)" : "var(--border)"}`,
-              }}
-              onClick={() => setRole("artist")}
-            >
-              <span class="text-lg mr-1">🎨</span>
-              <span class="font-semibold text-sm" style={{ color: role() === "artist" ? "var(--gold)" : "var(--cream)" }}>Artist</span>
-            </button>
-            <button
-              type="button"
-              class="p-3 rounded-xl text-center transition-all"
-              style={{
-                background: role() === "producer" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
-                border: `2px solid ${role() === "producer" ? "var(--gold)" : "var(--border)"}`,
-              }}
-              onClick={() => setRole("producer")}
-            >
-              <span class="text-lg mr-1">🎬</span>
-              <span class="font-semibold text-sm" style={{ color: role() === "producer" ? "var(--gold)" : "var(--cream)" }}>Producer</span>
-            </button>
-          </div>
-        </div>
-
         <div>
           <label class="label">Display name *</label>
           <input
@@ -168,16 +130,6 @@ export default function ProfileEdit() {
             placeholder="Tell us about yourself..."
             value={bio()}
             onInput={(e) => setBio(e.currentTarget.value)}
-          />
-        </div>
-
-        <div>
-          <label class="label">Artist registration number</label>
-          <input
-            class="input"
-            placeholder="Optional"
-            value={artistNumber()}
-            onInput={(e) => setArtistNumber(e.currentTarget.value)}
           />
         </div>
 

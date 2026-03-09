@@ -17,7 +17,7 @@ function isPublicPath(path: string): boolean {
 }
 
 export default function App(props: RouteSectionProps) {
-  const { isAuthenticated, isLoading, isProfileComplete } = useAuth();
+  const { isAuthenticated, isLoading, isProfileComplete, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -52,7 +52,15 @@ export default function App(props: RouteSectionProps) {
 
     // Authenticated + complete profile — redirect away from landing/onboarding
     if (path === "/" || path === "/onboarding") {
-      navigate("/dashboard", { replace: true });
+      const u = user();
+      navigate(u?.role === "producer" ? "/showroom" : "/dashboard", { replace: true });
+      return;
+    }
+
+    // Producers cannot access project routes
+    const u = user();
+    if (u?.role === "producer" && (path === "/dashboard" || path.startsWith("/projects"))) {
+      navigate("/showroom", { replace: true });
     }
   });
 

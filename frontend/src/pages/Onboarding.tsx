@@ -1,9 +1,11 @@
-import { createSignal, Show, onMount, onCleanup } from "solid-js";
+import { createSignal, Show, onMount, onCleanup, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/lib/api-client";
 import { useAuth } from "~/hooks/createAuth";
-import { shortenAddress, typeText, generateAvatar } from "~/lib/utils";
+import { shortenAddress, typeText, generateAvatar, sanitizeImageUrl } from "~/lib/utils";
 import { showToast } from "~/components/ui/Toast";
+import flatpickr from "flatpickr";
+import "flatpickr/dist/flatpickr.min.css";
 
 const RANDOM_BIOS = [
   "Passionate about contemporary art and new forms of digital expression.",
@@ -37,12 +39,21 @@ function randomDocNumber(): string {
   return s;
 }
 
+function randomArtistNumber(): string {
+  const prefix = ["MDA", "SIR", "AGS", "BNA"][Math.floor(Math.random() * 4)];
+  let digits = "";
+  for (let i = 0; i < 8; i++) digits += Math.floor(Math.random() * 10);
+  return `${prefix}-${digits}`;
+}
+
 export default function Onboarding() {
   const navigate = useNavigate();
   const { wallet, refreshUser } = useAuth();
 
   const [step, setStep] = createSignal(1);
-  // KYC fields
+  // Step 1: Role
+  const [role, setRole] = createSignal<"artist" | "producer" | null>(null);
+  // Step 2: KYC
   const [legalName, setLegalName] = createSignal("");
   const [birthDate, setBirthDate] = createSignal("");
   const [documentNumber, setDocumentNumber] = createSignal("");
@@ -50,24 +61,47 @@ export default function Onboarding() {
   const [kycVerifying, setKycVerifying] = createSignal(false);
   const [kycVerified, setKycVerified] = createSignal(false);
   const [demoRunning, setDemoRunning] = createSignal(false);
-  // Profile fields
+  // Step 3: Profile
   const [displayName, setDisplayName] = createSignal("");
   const [bio, setBio] = createSignal("");
   const [avatarUrl, setAvatarUrl] = createSignal("");
-  const [role, setRole] = createSignal<"artist" | "producer">("artist");
   const [saving, setSaving] = createSignal(false);
 
-  // Lifecycle tracking for async callbacks
   let kycMounted = true;
   let kycTimeoutId: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => { kycMounted = false; if (kycTimeoutId) clearTimeout(kycTimeoutId); });
+  let dateInputRef: HTMLInputElement | undefined;
+  let fpInstance: flatpickr.Instance | undefined;
+  onCleanup(() => {
+    kycMounted = false;
+    if (kycTimeoutId) clearTimeout(kycTimeoutId);
+    if (fpInstance) fpInstance.destroy();
+  });
+
+  // Init flatpickr when step 2 is shown
+  createEffect(() => {
+    if (step() === 2 && dateInputRef && !fpInstance) {
+      fpInstance = flatpickr(dateInputRef, {
+        dateFormat: "Y-m-d",
+        maxDate: "today",
+        defaultDate: birthDate() || undefined,
+        onChange: (_dates, dateStr) => setBirthDate(dateStr),
+      });
+    }
+  });
+
+  // Sync programmatic changes (demo auto-fill) to flatpickr
+  createEffect(() => {
+    const d = birthDate();
+    if (fpInstance && d) {
+      fpInstance.setDate(d, false);
+    }
+  });
 
   // Auto-pilot demo: type all KYC fields then submit
   async function runDemo() {
     if (demoRunning()) return;
     setDemoRunning(true);
-    // Reset fields
-    setLegalName(""); setBirthDate(""); setDocumentNumber("");
+    setLegalName(""); setBirthDate(""); setDocumentNumber(""); setArtistNumber("");
 
     const name = pick(RANDOM_NAMES);
     const date = randomDate();
@@ -78,34 +112,32 @@ export default function Onboarding() {
     setBirthDate(date);
     await new Promise((r) => setTimeout(r, 400));
     await typeText(doc, setDocumentNumber, 40);
+
+    if (role() === "artist") {
+      await new Promise((r) => setTimeout(r, 300));
+      await typeText(randomArtistNumber(), setArtistNumber, 40);
+    }
+
     setDemoRunning(false);
   }
 
-  // Start demo automatically on mount
-  onMount(() => {
-    setTimeout(() => runDemo(), 600);
-  });
-
   function handleKycSubmit() {
     if (!legalName().trim() || !birthDate() || !documentNumber().trim()) return;
+    if (role() === "artist" && !artistNumber().trim()) return;
     setKycVerifying(true);
 
-    // Generate avatar from name
     const avatar = generateAvatar(legalName().trim());
 
-    // Mock verification — simulate a 2.5s check
     kycTimeoutId = setTimeout(async () => {
       if (!kycMounted) return;
       const generatedBio = pick(RANDOM_BIOS);
       if (!kycMounted) return;
       setKycVerifying(false);
       setKycVerified(true);
-      // Pre-fill profile with KYC data + AI bio + generated avatar
       setDisplayName(legalName().trim());
       setBio(generatedBio);
       setAvatarUrl(avatar);
-      // Auto-advance after showing the success state briefly
-      kycTimeoutId = setTimeout(() => { if (kycMounted) setStep(2); }, 800);
+      kycTimeoutId = setTimeout(() => { if (kycMounted) { setStep(3); setKycVerified(false); } }, 800);
     }, 2500);
   }
 
@@ -121,18 +153,18 @@ export default function Onboarding() {
   }
 
   async function handleFinish() {
-    if (!displayName() || !avatarUrl() || !bio().trim()) return;
+    if (!displayName() || !avatarUrl() || !bio().trim() || !role()) return;
     setSaving(true);
     try {
       await api.updateMe({
         display_name: displayName(),
         bio: bio(),
         avatar_url: avatarUrl(),
-        role: role(),
+        role: role()!,
         artist_number: artistNumber(),
       });
       await refreshUser();
-      navigate("/dashboard");
+      navigate(role() === "producer" ? "/showroom" : "/dashboard");
     } catch (e) {
       if (import.meta.env.DEV) console.error("Profile save failed:", e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -143,15 +175,82 @@ export default function Onboarding() {
   return (
     <div class="gradient-bg noise-bg min-h-screen flex items-center justify-center">
       <div class="relative z-10 max-w-lg w-full mx-4">
-        {/* Progress */}
+        {/* Progress dots */}
         <div class="flex items-center gap-3 mb-10 justify-center">
           <div class="w-3 h-3 rounded-full transition-all" style={{ background: step() >= 1 ? "var(--gold)" : "var(--border)" }} />
           <div class="w-16 h-px transition-all" style={{ background: step() >= 2 ? "var(--gold)" : "var(--border)" }} />
           <div class="w-3 h-3 rounded-full transition-all" style={{ background: step() >= 2 ? "var(--gold)" : "var(--border)" }} />
+          <div class="w-16 h-px transition-all" style={{ background: step() >= 3 ? "var(--gold)" : "var(--border)" }} />
+          <div class="w-3 h-3 rounded-full transition-all" style={{ background: step() >= 3 ? "var(--gold)" : "var(--border)" }} />
         </div>
 
-        {/* Step 1: KYC Verification */}
+        {/* ── Step 1: Role Selection ── */}
         {step() === 1 && (
+          <div class="card animate-fade-in">
+            <div class="flex items-center gap-3 mb-6">
+              <div
+                class="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ background: "rgba(212,168,83,0.12)", border: "1px solid rgba(212,168,83,0.3)" }}
+              >
+                <svg class="w-5 h-5" style={{ color: "var(--gold)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" />
+                </svg>
+              </div>
+              <div>
+                <h1 class="font-display text-2xl font-bold" style={{ color: "var(--cream)" }}>
+                  Welcome to <span class="italic" style={{ color: "var(--gold)" }}>Heritage</span>
+                </h1>
+                <p class="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Wallet: <code class="font-mono">{shortenAddress(wallet() || "")}</code>
+                </p>
+              </div>
+            </div>
+
+            <p class="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+              How will you use the platform?
+            </p>
+
+            <div class="grid grid-cols-2 gap-4 mb-8">
+              <button
+                type="button"
+                class="p-6 rounded-xl text-center transition-all"
+                style={{
+                  background: role() === "artist" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
+                  border: `2px solid ${role() === "artist" ? "var(--gold)" : "var(--border)"}`,
+                }}
+                onClick={() => setRole("artist")}
+              >
+                <div class="text-3xl mb-2">🎨</div>
+                <div class="font-semibold text-sm" style={{ color: role() === "artist" ? "var(--gold)" : "var(--cream)" }}>Artist</div>
+                <p class="text-xs mt-2" style={{ color: "var(--text-muted)" }}>I create artworks and manage collections</p>
+              </button>
+              <button
+                type="button"
+                class="p-6 rounded-xl text-center transition-all"
+                style={{
+                  background: role() === "producer" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
+                  border: `2px solid ${role() === "producer" ? "var(--gold)" : "var(--border)"}`,
+                }}
+                onClick={() => setRole("producer")}
+              >
+                <div class="text-3xl mb-2">🎬</div>
+                <div class="font-semibold text-sm" style={{ color: role() === "producer" ? "var(--gold)" : "var(--cream)" }}>Producer</div>
+                <p class="text-xs mt-2" style={{ color: "var(--text-muted)" }}>I curate and sell artworks in showrooms</p>
+              </button>
+            </div>
+
+            <button
+              class="btn-gold w-full"
+              disabled={!role()}
+              onClick={() => { setStep(2); setTimeout(() => runDemo(), 600); }}
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 2: KYC Verification ── */}
+        {step() === 2 && (
           <div class="card animate-fade-in">
             <Show when={!kycVerifying() && !kycVerified()}>
               <div class="flex items-center gap-3 mb-6">
@@ -171,9 +270,6 @@ export default function Onboarding() {
                 </div>
               </div>
 
-              <p class="text-sm mb-1" style={{ color: "var(--text-muted)" }}>
-                Wallet : <code class="font-mono text-xs" style={{ color: "var(--cream-muted)" }}>{shortenAddress(wallet() || "")}</code>
-              </p>
               <p class="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
                 Please fill in your identity information to access the platform.
               </p>
@@ -192,13 +288,13 @@ export default function Onboarding() {
                 </div>
 
                 <div>
-                  <label class="label">Date of birth (YYYY-MM-DD) *</label>
+                  <label class="label">Date of birth *</label>
                   <input
-                    type="date"
+                    type="text"
                     class="input"
-                    value={birthDate()}
-                    onInput={(e) => setBirthDate(e.currentTarget.value)}
-                    style={{ "color-scheme": "dark" }}
+                    placeholder="YYYY-MM-DD"
+                    ref={dateInputRef}
+                    readOnly
                   />
                 </div>
 
@@ -213,25 +309,35 @@ export default function Onboarding() {
                   />
                 </div>
 
-                <div>
-                  <label class="label">Artist registration number</label>
-                  <input
-                    class="input"
-                    placeholder="Optional"
-                    value={artistNumber()}
-                    onInput={(e) => setArtistNumber(e.currentTarget.value)}
-                    maxLength={50}
-                  />
-                </div>
+                <Show when={role() === "artist"}>
+                  <div>
+                    <label class="label">Artist registration number *</label>
+                    <input
+                      class="input"
+                      placeholder="Ex: MDA-12345678"
+                      value={artistNumber()}
+                      onInput={(e) => setArtistNumber(e.currentTarget.value)}
+                      maxLength={50}
+                    />
+                    <p class="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                      Your official artist registration number (Maison des Artistes, SIRET, etc.)
+                    </p>
+                  </div>
+                </Show>
               </div>
 
-              <button
-                class="btn-gold w-full"
-                disabled={!legalName().trim() || !birthDate() || !documentNumber().trim()}
-                onClick={handleKycSubmit}
-              >
-                Verify my identity
-              </button>
+              <div class="flex gap-3">
+                <button class="btn-secondary flex-1" onClick={() => setStep(1)}>
+                  Back
+                </button>
+                <button
+                  class="btn-gold flex-1"
+                  disabled={!legalName().trim() || !birthDate() || !documentNumber().trim() || (role() === "artist" && !artistNumber().trim())}
+                  onClick={handleKycSubmit}
+                >
+                  Verify my identity
+                </button>
+              </div>
 
               <p class="text-xs mt-4 text-center" style={{ color: "var(--text-muted)" }}>
                 Your data is processed securely in compliance with GDPR.
@@ -246,9 +352,7 @@ export default function Onboarding() {
                     class="w-16 h-16 rounded-full border-2 border-t-transparent animate-spin"
                     style={{ "border-color": "var(--gold)", "border-top-color": "transparent" }}
                   />
-                  <div
-                    class="absolute inset-0 flex items-center justify-center"
-                  >
+                  <div class="absolute inset-0 flex items-center justify-center">
                     <svg class="w-6 h-6" style={{ color: "var(--gold)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
                     </svg>
@@ -285,50 +389,19 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* Step 2: Profil */}
-        {step() === 2 && (
+        {/* ── Step 3: Profile ── */}
+        {step() === 3 && (
           <div class="card animate-fade-in">
             <h1 class="font-display text-3xl font-bold mb-2" style={{ color: "var(--cream)" }}>
-              Your <span class="italic" style={{ color: "var(--gold)" }}>profile</span>
+              Your <span class="italic" style={{ color: "var(--gold)" }}>{role() === "artist" ? "artist" : "producer"} profile</span>
             </h1>
             <p class="text-sm mb-8" style={{ color: "var(--text-muted)" }}>
-              Other users will be able to find you and invite you to their projects.
+              {role() === "artist"
+                ? "Other users will be able to find you and invite you to their projects."
+                : "Artists will see your profile when you invite them to your showrooms."}
             </p>
 
             <div class="space-y-5 mb-8">
-              {/* Role selection */}
-              <div>
-                <label class="label">I am a... *</label>
-                <div class="grid grid-cols-2 gap-3 mt-1">
-                  <button
-                    type="button"
-                    class="p-4 rounded-xl text-center transition-all"
-                    style={{
-                      background: role() === "artist" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
-                      border: `2px solid ${role() === "artist" ? "var(--gold)" : "var(--border)"}`,
-                    }}
-                    onClick={() => setRole("artist")}
-                  >
-                    <div class="text-2xl mb-1">🎨</div>
-                    <div class="font-semibold text-sm" style={{ color: role() === "artist" ? "var(--gold)" : "var(--cream)" }}>Artist</div>
-                    <p class="text-xs mt-1" style={{ color: "var(--text-muted)" }}>I create artworks</p>
-                  </button>
-                  <button
-                    type="button"
-                    class="p-4 rounded-xl text-center transition-all"
-                    style={{
-                      background: role() === "producer" ? "rgba(212,168,83,0.15)" : "var(--surface-light)",
-                      border: `2px solid ${role() === "producer" ? "var(--gold)" : "var(--border)"}`,
-                    }}
-                    onClick={() => setRole("producer")}
-                  >
-                    <div class="text-2xl mb-1">🎬</div>
-                    <div class="font-semibold text-sm" style={{ color: role() === "producer" ? "var(--gold)" : "var(--cream)" }}>Producer</div>
-                    <p class="text-xs mt-1" style={{ color: "var(--text-muted)" }}>I manage projects</p>
-                  </button>
-                </div>
-              </div>
-
               {/* Avatar upload */}
               <div>
                 <label class="label">Profile picture *</label>
@@ -343,7 +416,7 @@ export default function Onboarding() {
                       </svg>
                     </div>
                   }>
-                    <img src={avatarUrl()} alt="Profile avatar" class="w-16 h-16 rounded-full object-cover" style={{ border: "2px solid var(--gold)" }} />
+                    <img src={sanitizeImageUrl(avatarUrl())} alt="Profile avatar" class="w-16 h-16 rounded-full object-cover" style={{ border: "2px solid var(--gold)" }} />
                   </Show>
                   <div>
                     <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload}
@@ -354,10 +427,10 @@ export default function Onboarding() {
               </div>
 
               <div>
-                <label class="label">Display name *</label>
+                <label class="label">{role() === "artist" ? "Artist name" : "Producer name"} *</label>
                 <input
                   class="input"
-                  placeholder="e.g. Studio XYZ, John D..."
+                  placeholder={role() === "artist" ? "e.g. John Doe" : "e.g. Studio XYZ"}
                   value={displayName()}
                   onInput={(e) => setDisplayName(e.currentTarget.value)}
                   maxLength={100}
@@ -378,7 +451,7 @@ export default function Onboarding() {
             </div>
 
             <div class="flex gap-3">
-              <button class="btn-secondary flex-1" onClick={() => setStep(1)}>
+              <button class="btn-secondary flex-1" onClick={() => setStep(2)}>
                 Back
               </button>
               <button
